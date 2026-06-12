@@ -1,0 +1,118 @@
+module Terminal.ProjectOutline exposing
+    ( ReadProjectOutlineError (..)
+    , readProjectOutline
+    , prettifyProjectOutlineError
+    , outlineFindSourcesErrorToString
+    )
+
+{-| The slice of the compiler's `Terminal.PackageInstall` that the formatter
+needs: locate the project's `gren.json`, read it into an `Outline`, and render
+the related errors. Extracted here so `gren-format` doesn't depend on the whole
+package-install machinery.
+-}
+
+import Compiler.Paths
+import Compiler.Outline as Outline exposing (Outline)
+import FileSystem
+import FileSystem.Path as Path exposing (Path)
+import Json.Decode as Decode
+import Argparse.PrettyPrinter as PP
+import Terminal.Report as Report exposing (Report)
+import Task exposing (Task)
+
+
+type ReadProjectOutlineError
+    = ReadProjectOutlineNoProject FileSystem.Error
+    | ReadProjectOutlineInvalidGrenJsonString
+    | ReadProjectOutlineInvalidGrenJson Decode.Error
+
+
+readProjectOutline : FileSystem.Permission -> Task ReadProjectOutlineError { projectPath : Path, outline : Outline }
+readProjectOutline fsPermission =
+    Compiler.Paths.projectRoot fsPermission
+        |> Task.mapError ReadProjectOutlineNoProject
+        |> Task.andThen
+            (\projectPath ->
+                Outline.readFromPath fsPermission (Path.append (Path.fromPosixString "gren.json") projectPath)
+                    |> Task.mapError
+                        (\err ->
+                            when err is
+                                Outline.FromPathFileSystemError fsErr ->
+                                    ReadProjectOutlineNoProject fsErr
+
+                                Outline.FromPathInvalidString ->
+                                    ReadProjectOutlineInvalidGrenJsonString
+
+                                Outline.FromPathInvalidJson jsonErr ->
+                                    ReadProjectOutlineInvalidGrenJson jsonErr
+                        )
+                    |> Task.map
+                        (\outline ->
+                            { projectPath = projectPath
+                            , outline = outline
+                            }
+                        )
+            )
+
+
+prettifyProjectOutlineError : ReadProjectOutlineError -> Report
+prettifyProjectOutlineError error =
+    when error is
+        ReadProjectOutlineNoProject _ ->
+            Report.create
+                "COULDN'T FIND PROJECT"
+                (Just (Path.fromPosixString "gren.json"))
+                (PP.verticalBlock
+                    [ PP.words "I couldn't find a Gren project."
+                    , PP.empty
+                    , PP.words "You can create new projects using"
+                    , PP.empty
+                    , PP.text "gren init"
+                        |> PP.indent
+                        |> PP.color PP.Green
+                    ]
+                )
+
+        ReadProjectOutlineInvalidGrenJsonString ->
+            Report.create
+                "FAILED TO READ OUTLINE"
+                (Just (Path.fromPosixString "gren.json"))
+                (PP.verticalBlock
+                    [ PP.words "Something seems to be wrong with the gren.json file."
+                    , PP.empty
+                    , PP.words "It doesn't contain a valid utf-8 encoded string."
+                    ]
+                )
+
+        ReadProjectOutlineInvalidGrenJson jsonErr ->
+            Report.create
+                "FAILED TO READ OUTLINE"
+                (Just (Path.fromPosixString "gren.json"))
+                (PP.verticalBlock
+                    [ PP.words "Something seems to be wrong with the gren.json file."
+                    , PP.empty
+                    , PP.words "The error I'm having is:"
+                    , PP.empty
+                    , PP.text (Decode.errorToString jsonErr)
+                        |> PP.indent
+                    ]
+                )
+
+
+outlineFindSourcesErrorToString : Outline.FindSourceFilesError -> String
+outlineFindSourcesErrorToString err =
+    when err is
+        Outline.FileSystemError fsErr ->
+            FileSystem.errorToString fsErr
+
+        Outline.FilePathInvalidModuleName { path, inferredModuleName } ->
+            "The file at path "
+                ++ Path.toPosixString path
+                ++ " would suggest a module name like "
+                ++ inferredModuleName
+                ++ ", but this is not a valid module name!"
+
+        Outline.FileContentNotValidString path ->
+            "The file at path "
+                ++ Path.toPosixString path
+                ++ " does not contain a valid utf-8 encoded string!"

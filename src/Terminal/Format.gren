@@ -1,0 +1,485 @@
+module Terminal.Format exposing
+    ( Config
+    , Error(..)
+    , run
+    , showFile
+    , checkFile
+    , preAstFile
+    , postAstFile
+    , lptFile
+    , pexFile
+    , prettifyError
+    )
+
+
+import Stream
+import Stream.Log
+import Task exposing (Task)
+import Bytes exposing (Bytes)
+import FileSystem
+import FileSystem.Path as Path exposing (Path)
+import Compiler.Ast.Compare as AstCompare
+import Formatter.MakeLogical exposing (makeLogicalPrintingTree)
+import Formatter.MakePretty exposing (makePrettyResult)
+import Formatter.LPTJson as LPTJson
+import Formatter.PExJson as PExJson
+import Compiler.Outline as Outline exposing (Outline)
+import Terminal.Report as Report exposing (Report)
+import Terminal.ProjectOutline as ProjectOutline
+import Argparse.PrettyPrinter as PP
+import Compiler.Parse.Module as PM
+import Compiler.Parse.Context as Context
+import Compiler.Ast.Source.Json as SourceJson
+import Compiler.Parse.Context.Json as ContextJson
+import Json.Encode as Json
+import String.Parser.Advanced as Parser
+
+
+type alias Config =
+    { stdout : Stream.Writable Bytes
+    , fsPermission : FileSystem.Permission
+    , pathToString : Path -> String
+    , projectPath : Path
+    , outline : Outline
+    , rename : Bool
+    }
+
+
+type Error
+    = FailedToFindSources Outline.FindSourceFilesError
+    | NothingToFormat
+    | ParseFailure { path : Path, error : String }
+    | PrettyPrintFailure { path : Path, error : String }
+    | FmtWriteFailure { path : Path, error : String }
+    | OverwriteFailure { path : Path, error : String }
+    | ShowReadFailure { path : Path, error : String }
+    | CheckReparseFailed { path : Path, error : String }
+    | AstMismatchAfterFormat { path : Path, explanation : String }
+
+
+run : Config -> Task Error String
+run { fsPermission, pathToString, projectPath, outline, rename } =
+    Outline.findSourceFiles fsPermission outline projectPath
+        |> Task.mapError FailedToFindSources
+        |> Task.andThen
+            (\files ->
+                let
+                    parseFn { path, source } previous =
+                        Task.andThen
+                            (\previousFiles ->
+                                if path.extension /= "gren" then
+                                    -- Probably kernel code
+                                    Task.succeed previousFiles
+                                else
+                                    let
+                                        relPath =
+                                            pathRelativeFrom projectPath path
+                                        parser = Parser.succeed (\ast payload -> { ast = ast , payload = payload })
+                                            |> Parser.keep PM.parser
+                                            |> Parser.keep Parser.getPayload
+                                    in
+                                    when Parser.run parser Context.empty source is
+                                        Ok { ast = ast, payload = payload } ->
+                                            when makeLogicalPrintingTree ast payload is
+                                                Err errString ->
+                                                    Task.fail (PrettyPrintFailure { path = relPath, error = errString })
+
+                                                Ok lpt ->
+                                                    when makePrettyResult lpt is
+                                                        Err errString ->
+                                                            Task.fail <|
+                                                                PrettyPrintFailure
+                                                                    { path = relPath
+                                                                    , error = errString
+                                                                    }
+
+                                                        Ok formatted ->
+                                                            when Parser.run parser Context.empty formatted is
+                                                                Err errs ->
+                                                                    Task.fail (CheckReparseFailed { path = relPath, error = PM.errorsToString formatted errs })
+
+                                                                Ok { ast = ast2, payload = _ } ->
+                                                                    when AstCompare.compareModules ast ast2 is
+                                                                        Err explanation ->
+                                                                            Task.fail (AstMismatchAfterFormat { path = relPath, explanation = explanation })
+
+                                                                        Ok {} ->
+                                                                            let
+                                                                                writeTask =
+                                                                                    if rename then
+                                                                                        let
+                                                                                            fmtFilePath = { path | filename = path.filename ++ "." ++ path.extension, extension = "fmt" }
+                                                                                        in
+                                                                                        FileSystem.writeFile fsPermission (Bytes.fromString (formatted ++ "\n")) fmtFilePath
+                                                                                            |> Task.mapError (\fsErr -> FmtWriteFailure { path = fmtFilePath, error = FileSystem.errorToString fsErr })
+                                                                                            |> Task.map (\_ -> {})
+                                                                                    else
+                                                                                        FileSystem.writeFile fsPermission (Bytes.fromString (formatted ++ "\n")) path
+                                                                                            |> Task.mapError (\fsErr -> OverwriteFailure { path = path, error = FileSystem.errorToString fsErr })
+                                                                                            |> Task.map (\_ -> {})
+                                                                            in
+                                                                            writeTask
+                                                                                |> Task.map (\_ ->
+                                                                                    Array.pushLast (pathToString path) previousFiles
+                                                                                )
+
+                                        Err errs ->
+                                            Task.fail <|
+                                                ParseFailure
+                                                    { path = relPath
+                                                    , error = PM.errorsToString source errs
+                                                    }
+                            )
+                            previous
+                in
+                if files == [] then
+                    Task.fail NothingToFormat
+
+                else
+                    Array.foldl parseFn (Task.succeed []) files
+                        |> Task.map (String.join "\n")
+            )
+
+
+showFile : { stdout : Stream.Writable Bytes, fsPermission : FileSystem.Permission } -> Path -> Task Error {}
+showFile { stdout, fsPermission } path =
+    FileSystem.readFile fsPermission path
+        |> Task.mapError (\fsErr -> ShowReadFailure { path = path, error = FileSystem.errorToString fsErr })
+        |> Task.andThen
+            (\bytes ->
+                when Bytes.toString bytes is
+                    Nothing ->
+                        Task.fail (ShowReadFailure { path = path, error = "File content is not valid UTF-8" })
+
+                    Just source ->
+                        let
+                            parser =
+                                Parser.succeed (\ast payload -> { ast = ast, payload = payload })
+                                    |> Parser.keep PM.parser
+                                    |> Parser.keep Parser.getPayload
+                        in
+                        when Parser.run parser Context.empty source is
+                            Err errs ->
+                                Task.fail (ParseFailure { path = path, error = PM.errorsToString source errs })
+
+                            Ok { ast, payload } ->
+                                when makeLogicalPrintingTree ast payload is
+                                    Err errString ->
+                                        Task.fail (PrettyPrintFailure { path = path, error = errString })
+
+                                    Ok lpt ->
+                                        when makePrettyResult lpt is
+                                            Err errString ->
+                                                Task.fail (PrettyPrintFailure { path = path, error = errString })
+
+                                            Ok formatted ->
+                                                Stream.Log.line stdout formatted
+            )
+
+
+checkFile : { stdout : Stream.Writable Bytes, fsPermission : FileSystem.Permission } -> Path -> Task Error {}
+checkFile { stdout, fsPermission } path =
+    FileSystem.readFile fsPermission path
+        |> Task.mapError (\fsErr -> ShowReadFailure { path = path, error = FileSystem.errorToString fsErr })
+        |> Task.andThen
+            (\bytes ->
+                when Bytes.toString bytes is
+                    Nothing ->
+                        Task.fail (ShowReadFailure { path = path, error = "File content is not valid UTF-8" })
+
+                    Just source ->
+                        let
+                            parser =
+                                Parser.succeed (\ast payload -> { ast = ast, payload = payload })
+                                    |> Parser.keep PM.parser
+                                    |> Parser.keep Parser.getPayload
+                        in
+                        when Parser.run parser Context.empty source is
+                            Err errs ->
+                                Task.fail (ParseFailure { path = path, error = PM.errorsToString source errs })
+
+                            Ok { ast = ast1, payload = payload } ->
+                                when makeLogicalPrintingTree ast1 payload is
+                                    Err errString ->
+                                        Task.fail (PrettyPrintFailure { path = path, error = errString })
+
+                                    Ok lpt ->
+                                        when makePrettyResult lpt is
+                                            Err errString ->
+                                                Task.fail (PrettyPrintFailure { path = path, error = errString })
+
+                                            Ok formatted ->
+                                                when Parser.run parser Context.empty formatted is
+                                                    Err errs ->
+                                                        Task.fail (CheckReparseFailed { path = path, error = PM.errorsToString formatted errs })
+
+                                                    Ok { ast = ast2, payload = _ } ->
+                                                        let
+                                                            message =
+                                                                when AstCompare.compareModules ast1 ast2 is
+                                                                    Ok {} ->
+                                                                        "Success"
+                                                                    Err explanation ->
+                                                                        "Failure: " ++ explanation
+                                                        in
+                                                        Stream.Log.line stdout message
+            )
+
+
+preAstFile : { stdout : Stream.Writable Bytes, fsPermission : FileSystem.Permission } -> Path -> Task Error {}
+preAstFile { stdout, fsPermission } path =
+    FileSystem.readFile fsPermission path
+        |> Task.mapError (\fsErr -> ShowReadFailure { path = path, error = FileSystem.errorToString fsErr })
+        |> Task.andThen
+            (\bytes ->
+                when Bytes.toString bytes is
+                    Nothing ->
+                        Task.fail (ShowReadFailure { path = path, error = "File content is not valid UTF-8" })
+
+                    Just source ->
+                        let
+                            parser =
+                                Parser.succeed (\ast payload -> { ast = ast, payload = payload })
+                                    |> Parser.keep PM.parser
+                                    |> Parser.keep Parser.getPayload
+                        in
+                        when Parser.run parser Context.empty source is
+                            Err errs ->
+                                Task.fail (ParseFailure { path = path, error = PM.errorsToString source errs })
+
+                            Ok { ast, payload } ->
+                                let
+                                    jsonValue =
+                                        Json.object
+                                            [ { key = "module", value = SourceJson.encodeModule ast }
+                                            , { key = "context", value = ContextJson.encodeContext payload }
+                                            ]
+                                in
+                                Stream.Log.line stdout (Json.encode 2 jsonValue)
+            )
+
+
+postAstFile : { stdout : Stream.Writable Bytes, fsPermission : FileSystem.Permission } -> Path -> Task Error {}
+postAstFile { stdout, fsPermission } path =
+    FileSystem.readFile fsPermission path
+        |> Task.mapError (\fsErr -> ShowReadFailure { path = path, error = FileSystem.errorToString fsErr })
+        |> Task.andThen
+            (\bytes ->
+                when Bytes.toString bytes is
+                    Nothing ->
+                        Task.fail (ShowReadFailure { path = path, error = "File content is not valid UTF-8" })
+
+                    Just source ->
+                        let
+                            parser =
+                                Parser.succeed (\ast payload -> { ast = ast, payload = payload })
+                                    |> Parser.keep PM.parser
+                                    |> Parser.keep Parser.getPayload
+                        in
+                        when Parser.run parser Context.empty source is
+                            Err errs ->
+                                Task.fail (ParseFailure { path = path, error = PM.errorsToString source errs })
+
+                            Ok { ast = ast1, payload = payload1 } ->
+                                when makeLogicalPrintingTree ast1 payload1 is
+                                    Err errString ->
+                                        Task.fail (PrettyPrintFailure { path = path, error = errString })
+
+                                    Ok lpt ->
+                                        when makePrettyResult lpt is
+                                            Err errString ->
+                                                Task.fail (PrettyPrintFailure { path = path, error = errString })
+
+                                            Ok formatted ->
+                                                when Parser.run parser Context.empty formatted is
+                                                    Err errs ->
+                                                        Task.fail (CheckReparseFailed { path = path, error = PM.errorsToString formatted errs })
+
+                                                    Ok { ast = ast2, payload = payload2 } ->
+                                                        when AstCompare.compareModules ast1 ast2 is
+                                                            Err explanation ->
+                                                                Task.fail (AstMismatchAfterFormat { path = path, explanation = explanation })
+
+                                                            Ok {} ->
+                                                                let
+                                                                    jsonValue =
+                                                                        Json.object
+                                                                            [ { key = "module", value = SourceJson.encodeModule ast2 }
+                                                                            , { key = "context", value = ContextJson.encodeContext payload2 }
+                                                                            ]
+                                                                in
+                                                                Stream.Log.line stdout (Json.encode 2 jsonValue)
+            )
+
+
+lptFile : { stdout : Stream.Writable Bytes, fsPermission : FileSystem.Permission } -> Path -> Task Error {}
+lptFile { stdout, fsPermission } path =
+    FileSystem.readFile fsPermission path
+        |> Task.mapError (\fsErr -> ShowReadFailure { path = path, error = FileSystem.errorToString fsErr })
+        |> Task.andThen
+            (\bytes ->
+                when Bytes.toString bytes is
+                    Nothing ->
+                        Task.fail (ShowReadFailure { path = path, error = "File content is not valid UTF-8" })
+
+                    Just source ->
+                        let
+                            parser =
+                                Parser.succeed (\ast payload -> { ast = ast, payload = payload })
+                                    |> Parser.keep PM.parser
+                                    |> Parser.keep Parser.getPayload
+                        in
+                        when Parser.run parser Context.empty source is
+                            Err errs ->
+                                Task.fail (ParseFailure { path = path, error = PM.errorsToString source errs })
+
+                            Ok { ast, payload } ->
+                                when makeLogicalPrintingTree ast payload is
+                                    Err errString ->
+                                        Task.fail (PrettyPrintFailure { path = path, error = errString })
+
+                                    Ok lpt ->
+                                        Stream.Log.line stdout (LPTJson.lptToJson lpt)
+            )
+
+
+pexFile : { stdout : Stream.Writable Bytes, fsPermission : FileSystem.Permission } -> Path -> Task Error {}
+pexFile { stdout, fsPermission } path =
+    FileSystem.readFile fsPermission path
+        |> Task.mapError (\fsErr -> ShowReadFailure { path = path, error = FileSystem.errorToString fsErr })
+        |> Task.andThen
+            (\bytes ->
+                when Bytes.toString bytes is
+                    Nothing ->
+                        Task.fail (ShowReadFailure { path = path, error = "File content is not valid UTF-8" })
+
+                    Just source ->
+                        let
+                            parser =
+                                Parser.succeed (\ast payload -> { ast = ast, payload = payload })
+                                    |> Parser.keep PM.parser
+                                    |> Parser.keep Parser.getPayload
+                        in
+                        when Parser.run parser Context.empty source is
+                            Err errs ->
+                                Task.fail (ParseFailure { path = path, error = PM.errorsToString source errs })
+
+                            Ok { ast, payload } ->
+                                when makeLogicalPrintingTree ast payload is
+                                    Err errString ->
+                                        Task.fail (PrettyPrintFailure { path = path, error = errString })
+
+                                    Ok lpt ->
+                                        when PExJson.lptToPexJson lpt is
+                                            Err errString ->
+                                                Task.fail (PrettyPrintFailure { path = path, error = errString })
+
+                                            Ok jsonStr ->
+                                                Stream.Log.line stdout jsonStr
+            )
+
+
+-- TODO: add to gren-lang/node?
+pathRelativeFrom : Path -> Path -> Path
+pathRelativeFrom base absolute =
+    let
+        commonPrefix =
+            findCommonPrefix 0 (Array.pushLast base.filename base.directory) absolute.directory
+    in
+    if commonPrefix > 0 then
+        { root = ""
+        , directory = Array.dropFirst commonPrefix absolute.directory
+        , filename = absolute.filename
+        , extension = absolute.extension
+        }
+
+    else
+        absolute
+
+
+findCommonPrefix : Int -> Array String -> Array String -> Int
+findCommonPrefix count left right =
+    when { l = Array.popFirst left, r = Array.popFirst right } is
+        { l = Just { first = lFirst, rest = lRest }, r = Just { first = rFirst, rest = rRest} } ->
+            if lFirst == rFirst then
+                findCommonPrefix (count + 1) lRest rRest
+
+            else
+                count
+
+        _ ->
+            count
+
+
+prettifyError : Error -> Report
+prettifyError error =
+    when error is
+        FailedToFindSources fsErr ->
+            Report.create
+                "COULD NOT FIND SOURCE CODE"
+                Nothing
+                (PP.verticalBlock
+                    [ PP.words "An error occured while I was searching for .gren files in this project."
+                    , PP.empty
+                    , PP.words "The error is:"
+                    , PP.empty
+                    , PP.words (ProjectOutline.outlineFindSourcesErrorToString fsErr)
+                        |> PP.indent
+                    ]
+                )
+
+        NothingToFormat ->
+            Report.create
+                "NOTHING TO FORMAT"
+                Nothing
+                ( PP.words "I can't seem to find any files in this project."
+                )
+
+        ParseFailure { path, error = message } ->
+            Report.create
+                "FAILED TO PARSE"
+                (Just path)
+                ( PP.verticalBlock (Array.map PP.text (String.split "\n" message))
+                )
+
+        PrettyPrintFailure { path, error = message } ->
+            Report.create
+                ("Could not format this file. Please report this 'gren format' bug.")
+                (Just path)
+                (PP.words message)
+
+        FmtWriteFailure { path, error = message } ->
+            Report.create
+                "COULD NOT WRITE FMT FILE"
+                (Just path)
+                (PP.words message)
+
+        OverwriteFailure { path, error = message } ->
+            Report.create
+                "COULD NOT OVERWRITE FILE"
+                (Just path)
+                (PP.words message)
+
+        AstMismatchAfterFormat { path, explanation } ->
+            Report.create
+                "AST MISMATCH AFTER FORMATTING"
+                (Just path)
+                ( PP.verticalBlock
+                    [ PP.words "The formatter produced output that does not have the same AST as the original. This is a bug in 'gren format'."
+                    , PP.empty
+                    , PP.words explanation
+                    ]
+                )
+
+        ShowReadFailure { path, error = message } ->
+            Report.create
+                "COULD NOT READ FILE"
+                (Just path)
+                (PP.words message)
+
+        CheckReparseFailed { path, error = message } ->
+            Report.create
+                "COULD NOT PARSE FORMATTED OUTPUT"
+                (Just path)
+                ( PP.verticalBlock (Array.map PP.text (String.split "\n" message))
+                )

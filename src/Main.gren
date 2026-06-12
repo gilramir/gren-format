@@ -1,0 +1,185 @@
+module Main exposing (main)
+
+{-| Standalone `gren-format` CLI: a faithful port of the compiler's `gren format`
+subcommand, built on `Argparse.Program.runRootWithContext` (rootless — invoked
+directly as `gren-format [flags]`, no command word).
+
+Default behavior matches `gren format`: with no flags it refuses to do anything
+(a safety guard); `--dangerous` formats every source file in the project in
+place, `--rename` writes `<file>.gren.fmt` instead. The remaining flags are the
+single-file inspection/debug aids carried over verbatim.
+-}
+
+import Argparse.Parser
+import Argparse.PrettyPrinter as PP
+import Argparse.Program as Program
+import Dict
+import FileSystem
+import FileSystem.Path as Path exposing (Path)
+import Init
+import Node
+import Stream.Log
+import Task exposing (Task)
+import Terminal
+import Terminal.Format as Format
+import Terminal.ProjectOutline as ProjectOutline
+import Terminal.Report as Report
+
+
+type alias FormatFlags =
+    { rename : Bool
+    , dangerous : Bool
+    , show : Maybe Path
+    , preAst : Maybe Path
+    , postAst : Maybe Path
+    , lpt : Maybe Path
+    , check : Maybe Path
+    , pex : Maybe Path
+    }
+
+
+type alias Context =
+    { fs : FileSystem.Permission
+    , useColor : Bool
+    }
+
+
+command : Argparse.Parser.Command {} FormatFlags FormatFlags
+command =
+    { word = ""
+    , arguments =
+        Argparse.Parser.noArgs
+    , flags =
+        Argparse.Parser.initFlags
+            (\rename dangerous show preAst postAst lpt check pex ->
+                { rename = rename
+                , dangerous = dangerous
+                , show = show
+                , preAst = preAst
+                , postAst = postAst
+                , lpt = lpt
+                , check = check
+                , pex = pex
+                }
+            )
+            |> Argparse.Parser.toggle "rename" "Write the formatted output to <filename>.gren.fmt next to each source file, leaving originals untouched"
+            |> Argparse.Parser.toggle "dangerous" "Format all source files in the project, overwriting them in place"
+            |> Argparse.Parser.flag "show" Argparse.Parser.pathParser "Parse and pretty-print a single file to stdout without modifying it"
+            |> Argparse.Parser.flag "pre-ast" Argparse.Parser.pathParser "Parse a single file and print its AST as JSON to stdout"
+            |> Argparse.Parser.flag "post-ast" Argparse.Parser.pathParser "Parse and format a file, verify the ASTs match, then print the formatted file's AST as JSON to stdout"
+            |> Argparse.Parser.flag "lpt" Argparse.Parser.pathParser "Parse a single file and print its Logical Printing Tree as JSON to stdout"
+            |> Argparse.Parser.flag "check" Argparse.Parser.pathParser "Parse and format a file, then compare original and formatted ASTs; prints Success or Failure"
+            |> Argparse.Parser.flag "pex" Argparse.Parser.pathParser "Parse and format a single file, then print the PrettyExpressive Doc as JSON to stdout"
+    , commonDescription =
+        Nothing
+    , summary =
+        "Format Gren source code."
+    , example =
+        PP.empty
+    , builder =
+        \_args flags -> flags
+    }
+
+
+main : Node.SimpleProgram a
+main =
+    Program.runRootWithContext
+        { name = "gren-format"
+        , version = "1.0.0"
+        , command = command
+        , init =
+            \_env toProgram ->
+                Init.await FileSystem.initialize <| \fsPermission ->
+                Init.await Terminal.initialize <| \terminalConfig ->
+                Init.awaitTask Node.getEnvironmentVariables <| \envVars ->
+                    let
+                        -- Color only when stderr/stdout is an interactive terminal
+                        -- and the user hasn't set NO_COLOR (https://no-color.org).
+                        useColor =
+                            terminalConfig /= Nothing && not (Dict.member "NO_COLOR" envVars)
+                    in
+                    toProgram { fs = fsPermission, useColor = useColor }
+        , onCommand = onCommand
+        }
+
+
+onCommand : Node.Environment -> Context -> FormatFlags -> Task String Program.Outcome
+onCommand env context flags =
+    let
+        fileConfig =
+            { stdout = env.stdout
+            , fsPermission = context.fs
+            }
+    in
+    when flags.show is
+        Just path ->
+            runFileOp context.useColor (Format.showFile fileConfig path)
+
+        Nothing ->
+            when flags.preAst is
+                Just path ->
+                    runFileOp context.useColor (Format.preAstFile fileConfig path)
+
+                Nothing ->
+                    when flags.postAst is
+                        Just path ->
+                            runFileOp context.useColor (Format.postAstFile fileConfig path)
+
+                        Nothing ->
+                            when flags.lpt is
+                                Just path ->
+                                    runFileOp context.useColor (Format.lptFile fileConfig path)
+
+                                Nothing ->
+                                    when flags.check is
+                                        Just path ->
+                                            runFileOp context.useColor (Format.checkFile fileConfig path)
+
+                                        Nothing ->
+                                            when flags.pex is
+                                                Just path ->
+                                                    runFileOp context.useColor (Format.pexFile fileConfig path)
+
+                                                Nothing ->
+                                                    formatProject env context flags
+
+
+{-| The whole-project format: guarded by `--dangerous`/`--rename`, just like
+`gren format`. -}
+formatProject : Node.Environment -> Context -> FormatFlags -> Task String Program.Outcome
+formatProject env context flags =
+    if not flags.dangerous && not flags.rename then
+        Stream.Log.line env.stdout "The default action is disabled. Use --dangerous to actually overwrite your files. Or --help for other options."
+            |> Task.map (\_ -> Program.Succeeded)
+
+    else
+        ProjectOutline.readProjectOutline context.fs
+            |> Task.mapError (\err -> reportToString context.useColor (ProjectOutline.prettifyProjectOutlineError err))
+            |> Task.andThen
+                (\{ projectPath, outline } ->
+                    Format.run
+                        { stdout = env.stdout
+                        , fsPermission = context.fs
+                        , pathToString = Path.toPosixString
+                        , projectPath = projectPath
+                        , outline = outline
+                        , rename = flags.rename
+                        }
+                        |> Task.mapError (\err -> reportToString context.useColor (Format.prettifyError err))
+                )
+            |> Task.andThen (\summary -> Stream.Log.line env.stdout summary)
+            |> Task.map (\_ -> Program.Succeeded)
+
+
+{-| Run a single-file operation: success exits 0, a `Format.Error` becomes a
+rendered report on stderr (exit 1, via the runner's failed-task path). -}
+runFileOp : Bool -> Task Format.Error {} -> Task String Program.Outcome
+runFileOp useColor task =
+    task
+        |> Task.map (\_ -> Program.Succeeded)
+        |> Task.mapError (\err -> reportToString useColor (Format.prettifyError err))
+
+
+reportToString : Bool -> Report.Report -> String
+reportToString useColor report =
+    Report.toString (Report.Terminal { useColor = useColor }) Path.toPosixString report
