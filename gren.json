@@ -7,12 +7,12 @@
     "gren-version": "0.6.5",
     "dependencies": {
         "direct": {
+            "gilramir/gren-argparse": "local:../gren-argparse",
             "gilramir/gren-format-lib": "local:../gren-format-lib",
             "gren-lang/compiler-common": "local:../compiler-common",
             "gren-lang/compiler-node": "local:../compiler-node",
             "gren-lang/core": "7.4.2",
-            "gren-lang/node": "6.1.0",
-            "youruser/cli": "local:../gren-cli"
+            "gren-lang/node": "6.1.0"
         },
         "indirect": {
             "gilramir/gren-pretty-expressive": "2.0.1",
