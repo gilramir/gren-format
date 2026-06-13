@@ -1,13 +1,11 @@
 module Main exposing (main)
 
-{-| Standalone `gren-format` CLI: a faithful port of the compiler's `gren format`
-subcommand, built on `Argparse.Program.runRootWithContext` (rootless — invoked
-directly as `gren-format [flags]`, no command word).
+{-| Standalone `gren-format` CLI built on `Argparse.Program.runRootWithContext`
+(rootless — invoked directly as `gren-format [flags]`, no command word).
 
-Default behavior matches `gren format`: with no flags it refuses to do anything
-(a safety guard); `--dangerous` formats every source file in the project in
-place, `--rename` writes `<file>.gren.fmt` instead. The remaining flags are the
-single-file inspection/debug aids carried over verbatim.
+With no flags it refuses to do anything (a safety guard); `--all` formats every
+source file in the project in place. The remaining flags are single-file
+inspection/debug aids.
 -}
 
 import Argparse.Parser
@@ -27,8 +25,7 @@ import Terminal.Report as Report
 
 
 type alias FormatFlags =
-    { rename : Bool
-    , dangerous : Bool
+    { all : Bool
     , show : Maybe Path
     , preAst : Maybe Path
     , postAst : Maybe Path
@@ -51,9 +48,8 @@ command =
         Argparse.Parser.noArgs
     , flags =
         Argparse.Parser.initFlags
-            (\rename dangerous show preAst postAst lpt check pex ->
-                { rename = rename
-                , dangerous = dangerous
+            (\all show preAst postAst lpt check pex ->
+                { all = all
                 , show = show
                 , preAst = preAst
                 , postAst = postAst
@@ -62,8 +58,7 @@ command =
                 , pex = pex
                 }
             )
-            |> Argparse.Parser.toggle "rename" "Write the formatted output to <filename>.gren.fmt next to each source file, leaving originals untouched"
-            |> Argparse.Parser.toggle "dangerous" "Format all source files in the project, overwriting them in place"
+            |> Argparse.Parser.toggle "all" "Format all source files under src/, overwriting them in place"
             |> Argparse.Parser.flag "show" Argparse.Parser.pathParser "Parse and pretty-print a single file to stdout without modifying it"
             |> Argparse.Parser.flag "pre-ast" Argparse.Parser.pathParser "Parse a single file and print its AST as JSON to stdout"
             |> Argparse.Parser.flag "post-ast" Argparse.Parser.pathParser "Parse and format a file, verify the ASTs match, then print the formatted file's AST as JSON to stdout"
@@ -144,12 +139,10 @@ onCommand env context flags =
                                                     formatProject env context flags
 
 
-{-| The whole-project format: guarded by `--dangerous`/`--rename`, just like
-`gren format`. -}
 formatProject : Node.Environment -> Context -> FormatFlags -> Task String Program.Outcome
 formatProject env context flags =
-    if not flags.dangerous && not flags.rename then
-        Stream.Log.line env.stdout "The default action is disabled. Use --dangerous to actually overwrite your files. Or --help for other options."
+    if not flags.all then
+        Stream.Log.line env.stdout "The default action is disabled. Use --all to actually overwrite your files. Or --help for other options."
             |> Task.map (\_ -> Program.Succeeded)
 
     else
@@ -163,7 +156,6 @@ formatProject env context flags =
                         , pathToString = Path.toPosixString
                         , projectPath = projectPath
                         , outline = outline
-                        , rename = flags.rename
                         }
                         |> Task.mapError (\err -> reportToString context.useColor (Format.prettifyError err))
                 )

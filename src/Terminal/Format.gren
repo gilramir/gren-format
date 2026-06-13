@@ -41,7 +41,6 @@ type alias Config =
     , pathToString : Path -> String
     , projectPath : Path
     , outline : Outline
-    , rename : Bool
     }
 
 
@@ -50,7 +49,6 @@ type Error
     | NothingToFormat
     | ParseFailure { path : Path, error : String }
     | PrettyPrintFailure { path : Path, error : String }
-    | FmtWriteFailure { path : Path, error : String }
     | OverwriteFailure { path : Path, error : String }
     | ShowReadFailure { path : Path, error : String }
     | CheckReparseFailed { path : Path, error : String }
@@ -58,7 +56,7 @@ type Error
 
 
 run : Config -> Task Error String
-run { fsPermission, pathToString, projectPath, outline, rename } =
+run { fsPermission, pathToString, projectPath, outline } =
     Outline.findSourceFiles fsPermission outline projectPath
         |> Task.mapError FailedToFindSources
         |> Task.andThen
@@ -105,20 +103,14 @@ run { fsPermission, pathToString, projectPath, outline, rename } =
 
                                                                         Ok {} ->
                                                                             let
-                                                                                writeTask =
-                                                                                    if rename then
-                                                                                        let
-                                                                                            fmtFilePath = { path | filename = path.filename ++ "." ++ path.extension, extension = "fmt" }
-                                                                                        in
-                                                                                        FileSystem.writeFile fsPermission (Bytes.fromString (formatted ++ "\n")) fmtFilePath
-                                                                                            |> Task.mapError (\fsErr -> FmtWriteFailure { path = fmtFilePath, error = FileSystem.errorToString fsErr })
-                                                                                            |> Task.map (\_ -> {})
-                                                                                    else
-                                                                                        FileSystem.writeFile fsPermission (Bytes.fromString (formatted ++ "\n")) path
-                                                                                            |> Task.mapError (\fsErr -> OverwriteFailure { path = path, error = FileSystem.errorToString fsErr })
-                                                                                            |> Task.map (\_ -> {})
+                                                                                tmpPath = { path | extension = "tmp" }
                                                                             in
-                                                                            writeTask
+                                                                            FileSystem.writeFile fsPermission (Bytes.fromString (formatted ++ "\n")) tmpPath
+                                                                                |> Task.mapError (\fsErr -> OverwriteFailure { path = path, error = FileSystem.errorToString fsErr })
+                                                                                |> Task.andThen (\_ ->
+                                                                                    FileSystem.move fsPermission path tmpPath
+                                                                                        |> Task.mapError (\fsErr -> OverwriteFailure { path = path, error = FileSystem.errorToString fsErr })
+                                                                                )
                                                                                 |> Task.map (\_ ->
                                                                                     Array.pushLast (pathToString path) previousFiles
                                                                                 )
@@ -445,12 +437,6 @@ prettifyError error =
         PrettyPrintFailure { path, error = message } ->
             Report.create
                 ("Could not format this file. Please report this 'gren format' bug.")
-                (Just path)
-                (PP.words message)
-
-        FmtWriteFailure { path, error = message } ->
-            Report.create
-                "COULD NOT WRITE FMT FILE"
                 (Just path)
                 (PP.words message)
 
