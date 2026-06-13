@@ -19,6 +19,7 @@ import Bytes exposing (Bytes)
 import FileSystem
 import FileSystem.Path as Path exposing (Path)
 import Compiler.Ast.Compare as AstCompare
+import UnifiedDiff exposing (unifiedDiffStrings)
 import Formatter.MakeLogical exposing (makeLogicalPrintingTree)
 import Formatter.MakePretty exposing (makePrettyResult)
 import Formatter.LPTJson as LPTJson
@@ -205,16 +206,30 @@ checkFile { stdout, fsPermission } path =
                                                     Err errs ->
                                                         Task.fail (CheckReparseFailed { path = path, error = PM.errorsToString formatted errs })
 
-                                                    Ok { ast = ast2, payload = _ } ->
-                                                        let
-                                                            message =
-                                                                when AstCompare.compareModules ast1 ast2 is
-                                                                    Ok {} ->
-                                                                        "Success"
-                                                                    Err explanation ->
-                                                                        "Failure: " ++ explanation
-                                                        in
-                                                        Stream.Log.line stdout message
+                                                    Ok { ast = ast2, payload = payload2 } ->
+                                                        when AstCompare.compareModules ast1 ast2 is
+                                                            Err explanation ->
+                                                                Stream.Log.line stdout ("Failure: " ++ explanation)
+
+                                                            Ok {} ->
+                                                                when makeLogicalPrintingTree ast2 payload2 is
+                                                                    Err errString ->
+                                                                        Task.fail (PrettyPrintFailure { path = path, error = errString })
+
+                                                                    Ok lpt2 ->
+                                                                        when makePrettyResult lpt2 is
+                                                                            Err errString ->
+                                                                                Task.fail (PrettyPrintFailure { path = path, error = errString })
+
+                                                                            Ok formatted2 ->
+                                                                                let
+                                                                                    message =
+                                                                                        if formatted == formatted2 then
+                                                                                            "Success"
+                                                                                        else
+                                                                                            "Failure: not idempotent\n" ++ unifiedDiffStrings formatted formatted2
+                                                                                in
+                                                                                Stream.Log.line stdout message
             )
 
 
