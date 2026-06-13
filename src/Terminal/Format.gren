@@ -2,6 +2,7 @@ module Terminal.Format exposing
     ( Config
     , Error(..)
     , run
+    , formatFile
     , showFile
     , checkFile
     , preAstFile
@@ -54,6 +55,77 @@ type Error
     | ShowReadFailure { path : Path, error : String }
     | CheckReparseFailed { path : Path, error : String }
     | AstMismatchAfterFormat { path : Path, explanation : String }
+    | NotIdempotent { path : Path, diff : String }
+
+
+{-| Full format-and-verify pipeline:
+  parse → format1 → reparse → AST compare → format2 → idempotency compare.
+  Returns the canonical formatted string on success.
+-}
+formatAndVerify : Path -> String -> Result Error String
+formatAndVerify path source =
+    let
+        parser =
+            Parser.succeed (\ast payload -> { ast = ast, payload = payload })
+                |> Parser.keep PM.parser
+                |> Parser.keep Parser.getPayload
+    in
+    when Parser.run parser Context.empty source is
+        Err errs ->
+            Err (ParseFailure { path = path, error = PM.errorsToString source errs })
+
+        Ok { ast = ast1, payload = payload1 } ->
+            when makeLogicalPrintingTree ast1 payload1 is
+                Err errString ->
+                    Err (PrettyPrintFailure { path = path, error = errString })
+
+                Ok lpt1 ->
+                    when makePrettyResult lpt1 is
+                        Err errString ->
+                            Err (PrettyPrintFailure { path = path, error = errString })
+
+                        Ok pretty1 ->
+                            when Parser.run parser Context.empty pretty1 is
+                                Err errs ->
+                                    Err (CheckReparseFailed { path = path, error = PM.errorsToString pretty1 errs })
+
+                                Ok { ast = ast2, payload = payload2 } ->
+                                    when AstCompare.compareModules ast1 ast2 is
+                                        Err explanation ->
+                                            Err (AstMismatchAfterFormat { path = path, explanation = explanation })
+
+                                        Ok {} ->
+                                            when makeLogicalPrintingTree ast2 payload2 is
+                                                Err errString ->
+                                                    Err (PrettyPrintFailure { path = path, error = errString })
+
+                                                Ok lpt2 ->
+                                                    when makePrettyResult lpt2 is
+                                                        Err errString ->
+                                                            Err (PrettyPrintFailure { path = path, error = errString })
+
+                                                        Ok pretty2 ->
+                                                            if pretty1 == pretty2 then
+                                                                Ok pretty1
+                                                            else
+                                                                Err (NotIdempotent { path = path, diff = unifiedDiffStrings pretty1 pretty2 })
+
+
+{-| Atomically overwrite a single file with its formatted content.
+    Writes to <file>.tmp then renames onto the original.
+-}
+atomicWrite : FileSystem.Permission -> Path -> String -> Task Error {}
+atomicWrite fsPermission path pretty =
+    let
+        tmpPath = { path | extension = "tmp" }
+    in
+    FileSystem.writeFile fsPermission (Bytes.fromString (pretty ++ "\n")) tmpPath
+        |> Task.mapError (\fsErr -> OverwriteFailure { path = path, error = FileSystem.errorToString fsErr })
+        |> Task.andThen (\_ ->
+            FileSystem.move fsPermission path tmpPath
+                |> Task.mapError (\fsErr -> OverwriteFailure { path = path, error = FileSystem.errorToString fsErr })
+        )
+        |> Task.map (\_ -> {})
 
 
 run : Config -> Task Error String
@@ -63,7 +135,7 @@ run { fsPermission, pathToString, projectPath, outline } =
         |> Task.andThen
             (\files ->
                 let
-                    parseFn { path, source } previous =
+                    processFn { path, source } previous =
                         Task.andThen
                             (\previousFiles ->
                                 if path.extension /= "gren" then
@@ -73,55 +145,16 @@ run { fsPermission, pathToString, projectPath, outline } =
                                     let
                                         relPath =
                                             pathRelativeFrom projectPath path
-                                        parser = Parser.succeed (\ast payload -> { ast = ast , payload = payload })
-                                            |> Parser.keep PM.parser
-                                            |> Parser.keep Parser.getPayload
                                     in
-                                    when Parser.run parser Context.empty source is
-                                        Ok { ast = ast, payload = payload } ->
-                                            when makeLogicalPrintingTree ast payload is
-                                                Err errString ->
-                                                    Task.fail (PrettyPrintFailure { path = relPath, error = errString })
+                                    when formatAndVerify relPath source is
+                                        Err err ->
+                                            Task.fail err
 
-                                                Ok lpt ->
-                                                    when makePrettyResult lpt is
-                                                        Err errString ->
-                                                            Task.fail <|
-                                                                PrettyPrintFailure
-                                                                    { path = relPath
-                                                                    , error = errString
-                                                                    }
-
-                                                        Ok formatted ->
-                                                            when Parser.run parser Context.empty formatted is
-                                                                Err errs ->
-                                                                    Task.fail (CheckReparseFailed { path = relPath, error = PM.errorsToString formatted errs })
-
-                                                                Ok { ast = ast2, payload = _ } ->
-                                                                    when AstCompare.compareModules ast ast2 is
-                                                                        Err explanation ->
-                                                                            Task.fail (AstMismatchAfterFormat { path = relPath, explanation = explanation })
-
-                                                                        Ok {} ->
-                                                                            let
-                                                                                tmpPath = { path | extension = "tmp" }
-                                                                            in
-                                                                            FileSystem.writeFile fsPermission (Bytes.fromString (formatted ++ "\n")) tmpPath
-                                                                                |> Task.mapError (\fsErr -> OverwriteFailure { path = path, error = FileSystem.errorToString fsErr })
-                                                                                |> Task.andThen (\_ ->
-                                                                                    FileSystem.move fsPermission path tmpPath
-                                                                                        |> Task.mapError (\fsErr -> OverwriteFailure { path = path, error = FileSystem.errorToString fsErr })
-                                                                                )
-                                                                                |> Task.map (\_ ->
-                                                                                    Array.pushLast (pathToString path) previousFiles
-                                                                                )
-
-                                        Err errs ->
-                                            Task.fail <|
-                                                ParseFailure
-                                                    { path = relPath
-                                                    , error = PM.errorsToString source errs
-                                                    }
+                                        Ok pretty ->
+                                            atomicWrite fsPermission path pretty
+                                                |> Task.map (\_ ->
+                                                    Array.pushLast (pathToString path) previousFiles
+                                                )
                             )
                             previous
                 in
@@ -129,8 +162,29 @@ run { fsPermission, pathToString, projectPath, outline } =
                     Task.fail NothingToFormat
 
                 else
-                    Array.foldl parseFn (Task.succeed []) files
+                    Array.foldl processFn (Task.succeed []) files
                         |> Task.map (String.join "\n")
+            )
+
+
+{-| Format a single file and overwrite it in place (atomic write). -}
+formatFile : { fsPermission : FileSystem.Permission } -> Path -> Task Error {}
+formatFile { fsPermission } path =
+    FileSystem.readFile fsPermission path
+        |> Task.mapError (\fsErr -> ShowReadFailure { path = path, error = FileSystem.errorToString fsErr })
+        |> Task.andThen
+            (\bytes ->
+                when Bytes.toString bytes is
+                    Nothing ->
+                        Task.fail (ShowReadFailure { path = path, error = "File content is not valid UTF-8" })
+
+                    Just source ->
+                        when formatAndVerify path source is
+                            Err err ->
+                                Task.fail err
+
+                            Ok pretty ->
+                                atomicWrite fsPermission path pretty
             )
 
 
@@ -145,28 +199,12 @@ showFile { stdout, fsPermission } path =
                         Task.fail (ShowReadFailure { path = path, error = "File content is not valid UTF-8" })
 
                     Just source ->
-                        let
-                            parser =
-                                Parser.succeed (\ast payload -> { ast = ast, payload = payload })
-                                    |> Parser.keep PM.parser
-                                    |> Parser.keep Parser.getPayload
-                        in
-                        when Parser.run parser Context.empty source is
-                            Err errs ->
-                                Task.fail (ParseFailure { path = path, error = PM.errorsToString source errs })
+                        when formatAndVerify path source is
+                            Err err ->
+                                Task.fail err
 
-                            Ok { ast, payload } ->
-                                when makeLogicalPrintingTree ast payload is
-                                    Err errString ->
-                                        Task.fail (PrettyPrintFailure { path = path, error = errString })
-
-                                    Ok lpt ->
-                                        when makePrettyResult lpt is
-                                            Err errString ->
-                                                Task.fail (PrettyPrintFailure { path = path, error = errString })
-
-                                            Ok formatted ->
-                                                Stream.Log.line stdout formatted
+                            Ok pretty ->
+                                Stream.Log.line stdout pretty
             )
 
 
@@ -181,55 +219,18 @@ checkFile { stdout, fsPermission } path =
                         Task.fail (ShowReadFailure { path = path, error = "File content is not valid UTF-8" })
 
                     Just source ->
-                        let
-                            parser =
-                                Parser.succeed (\ast payload -> { ast = ast, payload = payload })
-                                    |> Parser.keep PM.parser
-                                    |> Parser.keep Parser.getPayload
-                        in
-                        when Parser.run parser Context.empty source is
-                            Err errs ->
-                                Task.fail (ParseFailure { path = path, error = PM.errorsToString source errs })
+                        when formatAndVerify path source is
+                            Ok _ ->
+                                Stream.Log.line stdout "Success"
 
-                            Ok { ast = ast1, payload = payload } ->
-                                when makeLogicalPrintingTree ast1 payload is
-                                    Err errString ->
-                                        Task.fail (PrettyPrintFailure { path = path, error = errString })
+                            Err (AstMismatchAfterFormat { explanation }) ->
+                                Stream.Log.line stdout ("Failure: " ++ explanation)
 
-                                    Ok lpt ->
-                                        when makePrettyResult lpt is
-                                            Err errString ->
-                                                Task.fail (PrettyPrintFailure { path = path, error = errString })
+                            Err (NotIdempotent { diff }) ->
+                                Stream.Log.line stdout ("Failure: not idempotent\n" ++ diff)
 
-                                            Ok formatted ->
-                                                when Parser.run parser Context.empty formatted is
-                                                    Err errs ->
-                                                        Task.fail (CheckReparseFailed { path = path, error = PM.errorsToString formatted errs })
-
-                                                    Ok { ast = ast2, payload = payload2 } ->
-                                                        when AstCompare.compareModules ast1 ast2 is
-                                                            Err explanation ->
-                                                                Stream.Log.line stdout ("Failure: " ++ explanation)
-
-                                                            Ok {} ->
-                                                                when makeLogicalPrintingTree ast2 payload2 is
-                                                                    Err errString ->
-                                                                        Task.fail (PrettyPrintFailure { path = path, error = errString })
-
-                                                                    Ok lpt2 ->
-                                                                        when makePrettyResult lpt2 is
-                                                                            Err errString ->
-                                                                                Task.fail (PrettyPrintFailure { path = path, error = errString })
-
-                                                                            Ok formatted2 ->
-                                                                                let
-                                                                                    message =
-                                                                                        if formatted == formatted2 then
-                                                                                            "Success"
-                                                                                        else
-                                                                                            "Failure: not idempotent\n" ++ unifiedDiffStrings formatted formatted2
-                                                                                in
-                                                                                Stream.Log.line stdout message
+                            Err err ->
+                                Task.fail err
             )
 
 
@@ -469,6 +470,17 @@ prettifyError error =
                     [ PP.words "The formatter produced output that does not have the same AST as the original. This is a bug in 'gren format'."
                     , PP.empty
                     , PP.words explanation
+                    ]
+                )
+
+        NotIdempotent { path, diff } ->
+            Report.create
+                "FORMATTER NOT IDEMPOTENT"
+                (Just path)
+                ( PP.verticalBlock
+                    [ PP.words "Formatting the file twice produced different output. This is a bug in 'gren format'."
+                    , PP.empty
+                    , PP.text diff
                     ]
                 )
 

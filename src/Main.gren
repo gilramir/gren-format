@@ -127,7 +127,7 @@ onCommand env context flags =
         else
             Array.foldl
                 (\path task ->
-                    task |> Task.andThen (\_ -> Format.showFile fileConfig path)
+                    task |> Task.andThen (\_ -> Format.formatFile { fsPermission = context.fs } path)
                 )
                 (Task.succeed {})
                 flags.files
