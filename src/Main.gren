@@ -25,7 +25,8 @@ import Terminal.Report as Report
 
 
 type alias FormatFlags =
-    { all : Bool
+    { files : Array Path
+    , all : Bool
     , show : Maybe Path
     , preAst : Maybe Path
     , postAst : Maybe Path
@@ -41,15 +42,19 @@ type alias Context =
     }
 
 
-command : Argparse.Parser.Command {} FormatFlags FormatFlags
+command : Argparse.Parser.Command (Array Path) FormatFlags FormatFlags
 command =
     { word = ""
     , arguments =
-        Argparse.Parser.noArgs
+        Argparse.Parser.zeroOrMoreArgs
+            { value = Argparse.Parser.pathParser
+            , help = "Gren source file to pretty-print"
+            }
     , flags =
         Argparse.Parser.initFlags
             (\all show preAst postAst lpt check pex ->
-                { all = all
+                { files = []
+                , all = all
                 , show = show
                 , preAst = preAst
                 , postAst = postAst
@@ -72,7 +77,7 @@ command =
     , example =
         PP.empty
     , builder =
-        \_args flags -> flags
+        \args flags -> { flags | files = args }
     }
 
 
@@ -106,37 +111,61 @@ onCommand env context flags =
             , fsPermission = context.fs
             }
     in
-    when flags.show is
-        Just path ->
-            runFileOp context.useColor (Format.showFile fileConfig path)
+    if not (Array.isEmpty flags.files) then
+        let
+            anyFlagSet =
+                flags.all
+                    || flags.show /= Nothing
+                    || flags.preAst /= Nothing
+                    || flags.postAst /= Nothing
+                    || flags.lpt /= Nothing
+                    || flags.check /= Nothing
+                    || flags.pex /= Nothing
+        in
+        if anyFlagSet then
+            Task.fail "Cannot combine file path arguments with flags. Use --help for options."
+        else
+            Array.foldl
+                (\path task ->
+                    task |> Task.andThen (\_ -> Format.showFile fileConfig path)
+                )
+                (Task.succeed {})
+                flags.files
+                |> Task.map (\_ -> Program.Succeeded)
+                |> Task.mapError (\err -> reportToString context.useColor (Format.prettifyError err))
 
-        Nothing ->
-            when flags.preAst is
-                Just path ->
-                    runFileOp context.useColor (Format.preAstFile fileConfig path)
+    else
+        when flags.show is
+            Just path ->
+                runFileOp context.useColor (Format.showFile fileConfig path)
 
-                Nothing ->
-                    when flags.postAst is
-                        Just path ->
-                            runFileOp context.useColor (Format.postAstFile fileConfig path)
+            Nothing ->
+                when flags.preAst is
+                    Just path ->
+                        runFileOp context.useColor (Format.preAstFile fileConfig path)
 
-                        Nothing ->
-                            when flags.lpt is
-                                Just path ->
-                                    runFileOp context.useColor (Format.lptFile fileConfig path)
+                    Nothing ->
+                        when flags.postAst is
+                            Just path ->
+                                runFileOp context.useColor (Format.postAstFile fileConfig path)
 
-                                Nothing ->
-                                    when flags.check is
-                                        Just path ->
-                                            runFileOp context.useColor (Format.checkFile fileConfig path)
+                            Nothing ->
+                                when flags.lpt is
+                                    Just path ->
+                                        runFileOp context.useColor (Format.lptFile fileConfig path)
 
-                                        Nothing ->
-                                            when flags.pex is
-                                                Just path ->
-                                                    runFileOp context.useColor (Format.pexFile fileConfig path)
+                                    Nothing ->
+                                        when flags.check is
+                                            Just path ->
+                                                runFileOp context.useColor (Format.checkFile fileConfig path)
 
-                                                Nothing ->
-                                                    formatProject env context flags
+                                            Nothing ->
+                                                when flags.pex is
+                                                    Just path ->
+                                                        runFileOp context.useColor (Format.pexFile fileConfig path)
+
+                                                    Nothing ->
+                                                        formatProject env context flags
 
 
 formatProject : Node.Environment -> Context -> FormatFlags -> Task String Program.Outcome
