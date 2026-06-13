@@ -8,7 +8,7 @@ source file in the project in place. The remaining flags are single-file
 inspection/debug aids.
 -}
 
-import Argparse.Parser
+import Argparse.Parser as AP
 import Argparse.PrettyPrinter as PP
 import Argparse.Program as Program
 import Dict
@@ -42,16 +42,16 @@ type alias Context =
     }
 
 
-command : Argparse.Parser.Command (Array Path) FormatFlags FormatFlags
+command : AP.Command (Array Path) FormatFlags FormatFlags
 command =
     { word = ""
     , arguments =
-        Argparse.Parser.zeroOrMoreArgs
-            { value = Argparse.Parser.pathParser
+        AP.zeroOrMoreArgs
+            { value = AP.pathParser
             , help = "Gren source file to pretty-print"
             }
     , flags =
-        Argparse.Parser.initFlags
+        AP.initFlags
             (\all show preAst postAst lpt check pex ->
                 { files = []
                 , all = all
@@ -63,13 +63,13 @@ command =
                 , pex = pex
                 }
             )
-            |> Argparse.Parser.toggle (Argparse.Parser.LongOnly "all") "Format all source files under src/, overwriting them in place"
-            |> Argparse.Parser.flag (Argparse.Parser.LongOnly "show") Argparse.Parser.pathParser "Parse and pretty-print a single file to stdout without modifying it"
-            |> Argparse.Parser.flag (Argparse.Parser.LongOnly "pre-ast") Argparse.Parser.pathParser "Parse a single file and print its AST as JSON to stdout"
-            |> Argparse.Parser.flag (Argparse.Parser.LongOnly "post-ast") Argparse.Parser.pathParser "Parse and format a file, verify the ASTs match, then print the formatted file's AST as JSON to stdout"
-            |> Argparse.Parser.flag (Argparse.Parser.LongOnly "lpt") Argparse.Parser.pathParser "Parse a single file and print its Logical Printing Tree as JSON to stdout"
-            |> Argparse.Parser.flag (Argparse.Parser.LongOnly "check") Argparse.Parser.pathParser "Parse and format a file, then compare original and formatted ASTs; prints Success or Failure"
-            |> Argparse.Parser.flag (Argparse.Parser.LongOnly "pex") Argparse.Parser.pathParser "Parse and format a single file, then print the PrettyExpressive Doc as JSON to stdout"
+            |> AP.toggle (AP.LongOnly "all") "Format all source files under src/, overwriting them in place"
+            |> AP.flag (AP.LongOnly "show") AP.pathParser "Parse and pretty-print a single file to stdout without modifying it"
+            |> AP.flag (AP.LongOnly "pre-ast") AP.pathParser "Parse a single file and print its AST as JSON to stdout"
+            |> AP.flag (AP.LongOnly "post-ast") AP.pathParser "Parse and format a file, verify the ASTs match, then print the formatted file's AST as JSON to stdout"
+            |> AP.flag (AP.LongOnly "lpt") AP.pathParser "Parse a single file and print its Logical Printing Tree as JSON to stdout"
+            |> AP.flag (AP.LongOnly "check") AP.pathParser "Parse and format a file, then compare original and formatted ASTs; prints Success or Failure"
+            |> AP.flag (AP.LongOnly "pex") AP.pathParser "Parse and format a single file, then print the PrettyExpressive Doc as JSON to stdout"
     , commonDescription =
         Nothing
     , summary =
