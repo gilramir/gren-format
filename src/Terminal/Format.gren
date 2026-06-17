@@ -4,7 +4,6 @@ module Terminal.Format exposing
     , run
     , formatFile
     , showFile
-    , checkFile
     , preAstFile
     , postAstFile
     , lptFile
@@ -205,32 +204,6 @@ showFile { stdout, fsPermission } path =
 
                             Ok pretty ->
                                 Stream.Log.line stdout pretty
-            )
-
-
-checkFile : { stdout : Stream.Writable Bytes, fsPermission : FileSystem.Permission } -> Path -> Task Error {}
-checkFile { stdout, fsPermission } path =
-    FileSystem.readFile fsPermission path
-        |> Task.mapError (\fsErr -> ShowReadFailure { path = path, error = FileSystem.errorToString fsErr })
-        |> Task.andThen
-            (\bytes ->
-                when Bytes.toString bytes is
-                    Nothing ->
-                        Task.fail (ShowReadFailure { path = path, error = "File content is not valid UTF-8" })
-
-                    Just source ->
-                        when formatAndVerify path source is
-                            Ok _ ->
-                                Stream.Log.line stdout "Success"
-
-                            Err (AstMismatchAfterFormat { explanation }) ->
-                                Stream.Log.line stdout ("Failure: " ++ explanation)
-
-                            Err (NotIdempotent { diff }) ->
-                                Stream.Log.line stdout ("Failure: not idempotent\n" ++ diff)
-
-                            Err err ->
-                                Task.fail err
             )
 
 

@@ -38,7 +38,7 @@ src/
 
 ### `Main.gren`
 
-Defines `FormatFlags` and registers every CLI flag via `Argparse.Parser`. The `onCommand` function dispatches on flags in priority order: single-file debug flags (`--show`, `--pre-ast`, `--post-ast`, `--lpt`, `--check`, `--pex`) take precedence; if none is set, `formatProject` runs the whole-project format.
+Defines `FormatFlags` and registers every CLI flag via `Argparse.Parser`. The `onCommand` function dispatches on flags in priority order: single-file debug flags (`--show`, `--pre-ast`, `--post-ast`, `--lpt`, `--pex`) take precedence; if none is set, `formatProject` runs the whole-project format.
 
 `FormatFlags` fields:
 
@@ -50,7 +50,6 @@ Defines `FormatFlags` and registers every CLI flag via `Argparse.Parser`. The `o
 | `preAst` | `--pre-ast <path>` | Print original AST as JSON |
 | `postAst` | `--post-ast <path>` | Format, verify ASTs match, print formatted AST |
 | `lpt` | `--lpt <path>` | Print Logical Printing Tree as JSON |
-| `check` | `--check <path>` | Format and compare ASTs; prints Success or Failure |
 | `pex` | `--pex <path>` | Print PrettyExpressive Doc as JSON |
 
 Without `--all` or `--rename`, the default action prints a warning and exits — the same safety guard as `gren format`.

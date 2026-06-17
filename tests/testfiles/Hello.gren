@@ -1,0 +1,6 @@
+module Hello exposing (greeting)
+
+
+greeting : String
+greeting =
+    "Hello, world!"
