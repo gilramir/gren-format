@@ -61,7 +61,7 @@ command =
                 , pex = pex
                 }
             )
-            |> AP.toggle (AP.LongOnly "all") "Format all source files under src/, overwriting them in place"
+            |> AP.toggle (AP.Both { long = "all", short = "a" }) "Format all source files under src/, overwriting them in place"
             |> AP.flag (AP.LongOnly "show") AP.pathParser "Parse and pretty-print a single file to stdout without modifying it"
             |> AP.flag (AP.LongOnly "pre-ast") AP.pathParser "Parse a single file and print its AST as JSON to stdout"
             |> AP.flag (AP.LongOnly "post-ast") AP.pathParser "Parse and format a file, verify the ASTs match, then print the formatted file's AST as JSON to stdout"
