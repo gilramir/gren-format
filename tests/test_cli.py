@@ -67,6 +67,76 @@ class TestShowFlag(GrenFormatTestCase):
         result = self.run_app("--show", "/nonexistent/Missing.gren")
         self.assertNotEqual(result.returncode, 0)
 
+    def test_unparseable_file_exits_nonzero(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "Bad.gren")
+            with open(path, "w") as f:
+                f.write("this is not valid gren syntax\n")
+            result = self.run_app("--show", path)
+            self.assertNotEqual(result.returncode, 0)
+
+
+class TestJsonFlags(GrenFormatTestCase):
+    def test_pre_ast_outputs_valid_json(self):
+        hello = os.path.join(TESTFILES, "Hello.gren")
+        result = self.run_app("--pre-ast", hello)
+        self.assertEqual(result.returncode, 0)
+        data = json.loads(result.stdout)
+        self.assertIn("module", data)
+        self.assertIn("context", data)
+
+    def test_post_ast_outputs_valid_json(self):
+        hello = os.path.join(TESTFILES, "Hello.gren")
+        result = self.run_app("--post-ast", hello)
+        self.assertEqual(result.returncode, 0)
+        data = json.loads(result.stdout)
+        self.assertIn("module", data)
+
+    def test_lpt_outputs_valid_json(self):
+        hello = os.path.join(TESTFILES, "Hello.gren")
+        result = self.run_app("--lpt", hello)
+        self.assertEqual(result.returncode, 0)
+        json.loads(result.stdout)  # just verify it parses
+
+    def test_pex_outputs_valid_json(self):
+        hello = os.path.join(TESTFILES, "Hello.gren")
+        result = self.run_app("--pex", hello)
+        self.assertEqual(result.returncode, 0)
+        data = json.loads(result.stdout)
+        self.assertIsInstance(data, list)
+
+
+class TestPositionalArgs(GrenFormatTestCase):
+    def test_formats_file_in_place(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "Hello.gren")
+            with open(path, "w") as f:
+                f.write("module Hello exposing (x)\nx : Int\nx =\n    1\n")
+            result = self.run_app(path)
+            self.assertEqual(result.returncode, 0)
+            with open(path) as f:
+                formatted = f.read()
+            self.assertIn("\n\n\n", formatted)  # two blank lines before signature
+
+    def test_formats_multiple_files_in_place(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dirty = "module {name} exposing (x)\nx : Int\nx =\n    1\n"
+            path_a = os.path.join(tmpdir, "A.gren")
+            path_b = os.path.join(tmpdir, "B.gren")
+            with open(path_a, "w") as f:
+                f.write(dirty.format(name="A"))
+            with open(path_b, "w") as f:
+                f.write(dirty.format(name="B"))
+            result = self.run_app(path_a, path_b)
+            self.assertEqual(result.returncode, 0)
+            for path in [path_a, path_b]:
+                with open(path) as f:
+                    self.assertIn("\n\n\n", f.read())
+
+    def test_flag_combined_with_positional_arg_exits_nonzero(self):
+        hello = os.path.join(TESTFILES, "Hello.gren")
+        result = self.run_app("--show", hello, hello)
+        self.assertNotEqual(result.returncode, 0)
 
 
 class TestAllFlag(GrenFormatTestCase):
