@@ -7,7 +7,7 @@
     "gren-version": "0.6.5",
     "dependencies": {
         "direct": {
-            "gilramir/gren-ut": "local:../../gren-ut",
+            "gilramir/gren-unit": "local:../../gren-unit",
             "gilramir/gren-argparse": "local:../../gren-argparse",
             "gren-lang/core": "7.4.2",
             "gren-lang/node": "6.1.0",

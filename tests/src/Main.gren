@@ -1,7 +1,7 @@
 module Main exposing ( main )
 
 {-| CLI integration tests for the `gren-format` binary — a Gren port of the old
-`test_cli.py`, built on `gilramir/gren-ut`.
+`test_cli.py`, built on `gilramir/gren-unit`.
 
 Each Python `TestCase` class becomes a `U.suite`. The app binary is located once
 per suite in `setUpSuite`; suites that need scratch space make a fresh temp dir

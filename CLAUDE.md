@@ -71,7 +71,7 @@ Locates the project root (via `Compiler.Paths.projectRoot`), reads `gren.json` i
 ## Tests
 
 CLI integration tests live in `tests/` and are written in **Gren** on top of
-`gilramir/gren-ut` (an xUnit-style runner), replacing the old `test_cli.py`.
+`gilramir/gren-unit` (an xUnit-style runner), replacing the old `test_cli.py`.
 The test app (`tests/src/Main.gren` + `tests/src/Support.gren`) shells out to the
 built `../app` binary and asserts on its exit code, stdout/stderr, JSON output,
 and in-place file edits — 14 tests across 5 suites (`NoArgs`, `ShowFlag`,
