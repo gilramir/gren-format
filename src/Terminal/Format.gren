@@ -182,8 +182,10 @@ run { fsPermission, pathToString, projectPath, outline } =
             )
 
 
-{-| Format a single file and overwrite it in place (atomic write). -}
-formatFile : { fsPermission : FileSystem.Permission } -> Path -> Task Error {}
+{-| Format a single file and overwrite it in place (atomic write).
+    Returns True if the file was rewritten, False if it was already formatted.
+-}
+formatFile : { fsPermission : FileSystem.Permission } -> Path -> Task Error Bool
 formatFile { fsPermission } path =
     FileSystem.readFile fsPermission path
         |> Task.mapError (\fsErr -> ShowReadFailure { path = path, error = FileSystem.errorToString fsErr })
@@ -200,9 +202,10 @@ formatFile { fsPermission } path =
 
                             Ok pretty ->
                                 if pretty ++ "\n" == source then
-                                    Task.succeed {}
+                                    Task.succeed False
                                 else
                                     atomicWrite fsPermission path pretty
+                                        |> Task.map (\_ -> True)
             )
 
 

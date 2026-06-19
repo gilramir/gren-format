@@ -243,6 +243,23 @@ positionalSuite perms =
             , U.test "flag combined with positional arg exits nonzero" <| \s ->
                 Support.runApp perms s.appPath { cwd = Nothing } [ "--show", helloFixture, helloFixture ]
                     |> Task.map (\r -> Expect.notEqual 0 r.exitCode)
+            , U.test "summary reports reformatted count" <| \s ->
+                let
+                    file =
+                        Path.append (Path.fromPosixString "Hello.gren") s.dir
+                in
+                Support.writeText perms file dirtyHello
+                    |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Nothing } [ Path.toPosixString file ])
+                    |> Task.map (\r -> Support.expectContains "1 files reformatted" r.stdout)
+            , U.test "summary reports 0 reformatted when file already formatted" <| \s ->
+                let
+                    file =
+                        Path.append (Path.fromPosixString "Hello.gren") s.dir
+                in
+                Support.writeText perms file dirtyHello
+                    |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Nothing } [ Path.toPosixString file ])
+                    |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Nothing } [ Path.toPosixString file ])
+                    |> Task.map (\r -> Support.expectContains "0 files reformatted" r.stdout)
             ]
         }
 
