@@ -68,6 +68,29 @@ Locates the project root (via `Compiler.Paths.projectRoot`), reads `gren.json` i
 
 `Report` is either `Empty` or a titled error with an optional file path and a `PP.Document` body. `toString` renders to terminal (80-column, optional ANSI color) or JSON.
 
+## Tests
+
+CLI integration tests live in `tests/` and are written in **Gren** on top of
+`gilramir/gren-ut` (an xUnit-style runner), replacing the old `test_cli.py`.
+The test app (`tests/src/Main.gren` + `tests/src/Support.gren`) shells out to the
+built `../app` binary and asserts on its exit code, stdout/stderr, JSON output,
+and in-place file edits — 14 tests across 5 suites (`NoArgs`, `ShowFlag`,
+`JsonFlags`, `Positional`, `AllFlag`).
+
+```bash
+cd tests
+./run_tests.sh                 # builds ../app and the test app, runs all 14
+./run_tests.sh -v              # verbose: per-test status + timing
+./run_tests.sh 'AllFlag.*'     # glob-select tests by qualified name
+./run_tests.sh --junit-xml out.xml
+```
+
+`run_tests.sh` rebuilds `../app` first, so editing the CLI and re-running it is
+enough. Suites that need scratch space make a fresh temp dir per test (`setUp`)
+and remove it in `tearDown`; the `gren-format` app is located once per suite via
+`Support.locateApp` (resolved to an absolute path so it still launches when a
+test sets the subprocess working directory to a temp dir).
+
 ## Dependencies
 
 All local (sibling directories):
