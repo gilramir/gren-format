@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# CLI integration tests for gren-format, written in Gren on top of gilramir/gren-unit.
+# CLI integration tests for gren-format, written in Gren on top of gilramir/gren-unit-node.
 # Builds the gren-format binary, then builds and runs the test app (which shells
 # out to that binary). Extra args pass through to the test runner, e.g.:
 #
