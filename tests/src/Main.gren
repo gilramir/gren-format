@@ -22,7 +22,7 @@ import FileSystem.Path as Path exposing (Path)
 import Init
 import Node
 import Task
-import Test.Unit as U
+import Test.Runner.UnitNode as U
 import Support exposing (RunResult, Perms)
 
 
