@@ -199,7 +199,10 @@ formatFile { fsPermission } path =
                                 Task.fail err
 
                             Ok pretty ->
-                                atomicWrite fsPermission path pretty
+                                if pretty ++ "\n" == source then
+                                    Task.succeed {}
+                                else
+                                    atomicWrite fsPermission path pretty
             )
 
 
