@@ -1,0 +1,179 @@
+module Support exposing
+    ( RunResult
+    , runApp
+    , locateApp
+    , expectContains
+    , expectJsonHasFields
+    , expectJsonValid
+    , expectJsonArray
+    , writeText
+    , makeProject
+    )
+
+{-| Shared helpers for the gren-format CLI test suites: spawning the built
+`gren-format` app, capturing its result, and the filesystem/JSON assertions the
+ported `test_cli.py` cases need.
+-}
+
+import Bytes
+import ChildProcess
+import Expect exposing (Expectation)
+import FileSystem
+import FileSystem.Path as Path exposing (Path)
+import Json.Decode as Decode
+import Task exposing (Task)
+import Test.Unit as U
+
+
+{-| Both subprocess channels, normalized: a clean exit becomes `exitCode = 0`,
+a nonzero exit (a `ProgramError`) preserves the real code, and a failure to even
+launch fails the task (→ the test errors).
+-}
+type alias RunResult =
+    { exitCode : Int
+    , stdout : String
+    , stderr : String
+    }
+
+
+runApp : U.Permissions -> String -> { cwd : Maybe String } -> Array String -> Task String RunResult
+runApp perms appPath options args =
+    let
+        opts =
+            { ChildProcess.defaultRunOptions
+                | workingDirectory =
+                    when options.cwd is
+                        Just d ->
+                            ChildProcess.SetWorkingDirectory d
+
+                        Nothing ->
+                            ChildProcess.InheritWorkingDirectory
+            }
+    in
+    ChildProcess.run perms.childProcess "node" (Array.pushFirst appPath args) opts
+        |> Task.map
+            (\okRun ->
+                { exitCode = 0, stdout = bytesToString okRun.stdout, stderr = bytesToString okRun.stderr }
+            )
+        |> Task.onError
+            (\err ->
+                when err is
+                    ChildProcess.ProgramError e ->
+                        Task.succeed { exitCode = e.exitCode, stdout = bytesToString e.stdout, stderr = bytesToString e.stderr }
+
+                    ChildProcess.InitError e ->
+                        Task.fail ("could not launch gren-format app: " ++ e.errorCode)
+            )
+
+
+{-| Resolve the built `gren-format/app` to an absolute path, so it still
+launches when a test points the subprocess's working directory at a temp dir.
+The test runner's own cwd is `gren-format/tests/`, so the app is one level up.
+-}
+locateApp : U.Permissions -> Task String String
+locateApp perms =
+    FileSystem.realPath perms.fs (Path.fromPosixString "../app")
+        |> Task.map Path.toPosixString
+        |> Task.mapError (\e -> "could not locate gren-format app (build it first?): " ++ Debug.toString e)
+
+
+
+-- ASSERTIONS
+
+
+expectContains : String -> String -> Expectation
+expectContains needle haystack =
+    if String.contains needle haystack then
+        Expect.pass
+
+    else
+        Expect.fail ("expected output to contain " ++ Debug.toString needle ++ "\n--- actual ---\n" ++ haystack)
+
+
+{-| Pass iff `out` parses as JSON *and* every named field is present.
+-}
+expectJsonHasFields : Array String -> String -> Expectation
+expectJsonHasFields fields out =
+    let
+        decoder =
+            Array.foldl
+                (\f acc -> Decode.map2 (\_ _ -> {}) (Decode.field f Decode.value) acc)
+                (Decode.succeed {})
+                fields
+    in
+    when Decode.decodeString decoder out is
+        Ok _ ->
+            Expect.pass
+
+        Err e ->
+            Expect.fail ("expected JSON with fields " ++ Debug.toString fields ++ ": " ++ Decode.errorToString e)
+
+
+{-| Pass iff `out` parses as JSON at all (any value) — mirrors a bare
+`json.loads`.
+-}
+expectJsonValid : String -> Expectation
+expectJsonValid out =
+    when Decode.decodeString Decode.value out is
+        Ok _ ->
+            Expect.pass
+
+        Err e ->
+            Expect.fail ("expected valid JSON: " ++ Decode.errorToString e)
+
+
+{-| Pass iff `out` parses as a JSON array.
+-}
+expectJsonArray : String -> Expectation
+expectJsonArray out =
+    when Decode.decodeString (Decode.array Decode.value) out is
+        Ok _ ->
+            Expect.pass
+
+        Err e ->
+            Expect.fail ("expected a JSON array: " ++ Decode.errorToString e)
+
+
+
+-- FILESYSTEM PROVISIONING
+
+
+writeText : U.Permissions -> Path -> String -> Task String {}
+writeText perms path text =
+    FileSystem.writeFile perms.fs (Bytes.fromString text) path
+        |> Task.map (\_ -> {})
+        |> Task.mapError (\e -> "write " ++ Path.toPosixString path ++ ": " ++ Debug.toString e)
+
+
+{-| Provision a minimal Gren application under `dir`: a `gren.json` plus
+`src/Hello.gren` with the given (dirty) contents — the `--all` test's fixture.
+-}
+makeProject : U.Permissions -> Path -> String -> Task String {}
+makeProject perms dir helloContents =
+    FileSystem.makeDirectory perms.fs { recursive = True } (Path.append (Path.fromPosixString "src") dir)
+        |> Task.mapError (\e -> "mkdir src: " ++ Debug.toString e)
+        |> Task.andThen (\_ -> writeText perms (Path.append (Path.fromPosixString "gren.json") dir) minimalGrenJson)
+        |> Task.andThen (\_ -> writeText perms (Path.append (Path.fromPosixString "src/Hello.gren") dir) helloContents)
+
+
+minimalGrenJson : String
+minimalGrenJson =
+    """
+{
+    "type": "application",
+    "platform": "node",
+    "source-directories": [ "src" ],
+    "gren-version": "0.6.5",
+    "dependencies": { "direct": {}, "indirect": {} }
+}
+"""
+
+
+
+-- INTERNAL
+
+
+bytesToString : Bytes.Bytes -> String
+bytesToString bytes =
+    Bytes.toString bytes
+        |> Maybe.withDefault ""

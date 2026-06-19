@@ -1,0 +1,309 @@
+module Main exposing ( main )
+
+{-| CLI integration tests for the `gren-format` binary — a Gren port of the old
+`test_cli.py`, built on `gilramir/gren-ut`.
+
+Each Python `TestCase` class becomes a `U.suite`. The app binary is located once
+per suite in `setUpSuite`; suites that need scratch space make a fresh temp dir
+per test in `setUp` and remove it in `tearDown` (the `with TemporaryDirectory()`
+replacement, cleaned up even when a test fails). Run it like the unittest CLI:
+
+    ./run_tests.sh                 # build app + tests, run all
+    node app -v                    # verbose: per-test status + timing
+    node app 'AllFlag.*'           # glob-select by qualified name
+    node app --junit-xml out.xml   # machine-readable results
+-}
+
+import Bytes
+import Expect
+import FileSystem
+import FileSystem.Path as Path exposing (Path)
+import Node
+import Task
+import Test.Unit as U
+import Support exposing (RunResult)
+
+
+main : Node.SimpleProgram a
+main =
+    U.run
+        { name = "gren-format-cli-tests"
+        , version = "1.0.0"
+        , suites =
+            \perms ->
+                [ noArgsSuite perms
+                , showFlagSuite perms
+                , jsonFlagsSuite perms
+                , positionalSuite perms
+                , allFlagSuite perms
+                ]
+        }
+
+
+helloFixture : String
+helloFixture =
+    "testfiles/Hello.gren"
+
+
+dirtyHello : String
+dirtyHello =
+    "module Hello exposing (x)\nx : Int\nx =\n    1\n"
+
+
+
+-- A fixture pairing the located app with a fresh temp dir (for suites that
+-- provision scratch files per test).
+
+
+type alias Scratch =
+    { appPath : String
+    , dir : Path
+    }
+
+
+makeScratch : U.Permissions -> String -> Task.Task String Scratch
+makeScratch perms appPath =
+    FileSystem.makeTempDirectory perms.fs "gren-format-test"
+        |> Task.map (\dir -> { appPath = appPath, dir = dir })
+        |> Task.mapError (\e -> "makeTempDirectory: " ++ Debug.toString e)
+
+
+removeScratch : U.Permissions -> Scratch -> Task.Task String {}
+removeScratch perms scratch =
+    FileSystem.remove perms.fs { recursive = True } scratch.dir
+        |> Task.map (\_ -> {})
+        |> Task.mapError (\e -> "remove temp dir: " ++ Debug.toString e)
+
+
+
+-- SUITE: no args / --help (no scratch needed; test fixture is just the app path)
+
+
+noArgsSuite : U.Permissions -> U.Suite
+noArgsSuite perms =
+    U.suite
+        { name = "NoArgs"
+        , setUpSuite = Support.locateApp perms
+        , tearDownSuite = U.noTearDown
+        , setUp = \appPath -> Task.succeed appPath
+        , tearDown = U.noTearDown
+        , tests =
+            [ U.test "prints safety message and exits 0" <| \appPath ->
+                Support.runApp perms appPath { cwd = Nothing } []
+                    |> Task.map
+                        (\r ->
+                            Expect.all
+                                [ \_ -> Expect.equal 0 r.exitCode
+                                , \_ -> Support.expectContains "default action is disabled" r.stdout
+                                ]
+                                {}
+                        )
+            , U.test "help flag lists --all" <| \appPath ->
+                Support.runApp perms appPath { cwd = Nothing } [ "--help" ]
+                    |> Task.map
+                        (\r ->
+                            Expect.all
+                                [ \_ -> Expect.equal 0 r.exitCode
+                                , \_ -> Support.expectContains "--all" r.stdout
+                                ]
+                                {}
+                        )
+            ]
+        }
+
+
+
+-- SUITE: --show
+
+
+showFlagSuite : U.Permissions -> U.Suite
+showFlagSuite perms =
+    U.suite
+        { name = "ShowFlag"
+        , setUpSuite = Support.locateApp perms
+        , tearDownSuite = U.noTearDown
+        , setUp = makeScratch perms
+        , tearDown = removeScratch perms
+        , tests =
+            [ U.test "formats a file to stdout" <| \s ->
+                Support.runApp perms s.appPath { cwd = Nothing } [ "--show", helloFixture ]
+                    |> Task.map
+                        (\r ->
+                            Expect.all
+                                [ \_ -> Expect.equal 0 r.exitCode
+                                , \_ -> Support.expectContains "module Hello" r.stdout
+                                , \_ -> Expect.equal "" r.stderr
+                                ]
+                                {}
+                        )
+            , U.test "missing file exits nonzero" <| \s ->
+                Support.runApp perms s.appPath { cwd = Nothing } [ "--show", "/nonexistent/Missing.gren" ]
+                    |> Task.map (\r -> Expect.notEqual 0 r.exitCode)
+            , U.test "unparseable file exits nonzero" <| \s ->
+                let
+                    bad =
+                        Path.append (Path.fromPosixString "Bad.gren") s.dir
+                in
+                Support.writeText perms bad "this is not valid gren syntax\n"
+                    |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Nothing } [ "--show", Path.toPosixString bad ])
+                    |> Task.map (\r -> Expect.notEqual 0 r.exitCode)
+            ]
+        }
+
+
+
+-- SUITE: --pre-ast / --post-ast / --lpt / --pex
+
+
+jsonFlagsSuite : U.Permissions -> U.Suite
+jsonFlagsSuite perms =
+    U.suite
+        { name = "JsonFlags"
+        , setUpSuite = Support.locateApp perms
+        , tearDownSuite = U.noTearDown
+        , setUp = \appPath -> Task.succeed appPath
+        , tearDown = U.noTearDown
+        , tests =
+            [ U.test "pre-ast outputs json with module + context" <| \appPath ->
+                runJson perms appPath "--pre-ast"
+                    |> Task.map (\r -> jsonOk r (Support.expectJsonHasFields [ "module", "context" ] r.stdout))
+            , U.test "post-ast outputs json with module" <| \appPath ->
+                runJson perms appPath "--post-ast"
+                    |> Task.map (\r -> jsonOk r (Support.expectJsonHasFields [ "module" ] r.stdout))
+            , U.test "lpt outputs valid json" <| \appPath ->
+                runJson perms appPath "--lpt"
+                    |> Task.map (\r -> jsonOk r (Support.expectJsonValid r.stdout))
+            , U.test "pex outputs a json array" <| \appPath ->
+                runJson perms appPath "--pex"
+                    |> Task.map (\r -> jsonOk r (Support.expectJsonArray r.stdout))
+            ]
+        }
+
+
+runJson : U.Permissions -> String -> String -> Task.Task String RunResult
+runJson perms appPath flag =
+    Support.runApp perms appPath { cwd = Nothing } [ flag, helloFixture ]
+
+
+jsonOk : RunResult -> Expect.Expectation -> Expect.Expectation
+jsonOk r jsonExpectation =
+    Expect.all
+        [ \_ -> Expect.equal 0 r.exitCode
+        , \_ -> jsonExpectation
+        ]
+        {}
+
+
+
+-- SUITE: positional args (format in place)
+
+
+positionalSuite : U.Permissions -> U.Suite
+positionalSuite perms =
+    U.suite
+        { name = "Positional"
+        , setUpSuite = Support.locateApp perms
+        , tearDownSuite = U.noTearDown
+        , setUp = makeScratch perms
+        , tearDown = removeScratch perms
+        , tests =
+            [ U.test "formats a file in place" <| \s ->
+                let
+                    file =
+                        Path.append (Path.fromPosixString "Hello.gren") s.dir
+                in
+                Support.writeText perms file dirtyHello
+                    |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Nothing } [ Path.toPosixString file ])
+                    |> Task.andThen (\r -> readBack perms file |> Task.map (\after -> formattedInPlace r after))
+            , U.test "formats multiple files in place" <| \s ->
+                let
+                    fileA =
+                        Path.append (Path.fromPosixString "A.gren") s.dir
+
+                    fileB =
+                        Path.append (Path.fromPosixString "B.gren") s.dir
+                in
+                Support.writeText perms fileA "module A exposing (x)\nx : Int\nx =\n    1\n"
+                    |> Task.andThen (\_ -> Support.writeText perms fileB "module B exposing (x)\nx : Int\nx =\n    1\n")
+                    |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Nothing } [ Path.toPosixString fileA, Path.toPosixString fileB ])
+                    |> Task.andThen
+                        (\r ->
+                            readBack perms fileA
+                                |> Task.andThen (\a -> readBack perms fileB |> Task.map (\b -> { a = a, b = b, r = r }))
+                        )
+                    |> Task.map
+                        (\res ->
+                            Expect.all
+                                [ \_ -> Expect.equal 0 res.r.exitCode
+                                , \_ -> Support.expectContains "\n\n\n" res.a
+                                , \_ -> Support.expectContains "\n\n\n" res.b
+                                ]
+                                {}
+                        )
+            , U.test "flag combined with positional arg exits nonzero" <| \s ->
+                Support.runApp perms s.appPath { cwd = Nothing } [ "--show", helloFixture, helloFixture ]
+                    |> Task.map (\r -> Expect.notEqual 0 r.exitCode)
+            ]
+        }
+
+
+readBack : U.Permissions -> Path -> Task.Task String String
+readBack perms path =
+    FileSystem.readFile perms.fs path
+        |> Task.map (\bytes -> Bytes.toString bytes |> Maybe.withDefault "")
+        |> Task.mapError (\e -> "read " ++ Path.toPosixString path ++ ": " ++ Debug.toString e)
+
+
+formattedInPlace : RunResult -> String -> Expect.Expectation
+formattedInPlace r after =
+    Expect.all
+        [ \_ -> Expect.equal 0 r.exitCode
+        , \_ -> Support.expectContains "\n\n\n" after
+        ]
+        {}
+
+
+
+-- SUITE: --all
+
+
+allFlagSuite : U.Permissions -> U.Suite
+allFlagSuite perms =
+    U.suite
+        { name = "AllFlag"
+        , setUpSuite = Support.locateApp perms
+        , tearDownSuite = U.noTearDown
+        , setUp = makeScratch perms
+        , tearDown = removeScratch perms
+        , tests =
+            [ U.test "formats project files in place" <| \s ->
+                let
+                    srcFile =
+                        Path.append (Path.fromPosixString "src/Hello.gren") s.dir
+                in
+                Support.makeProject perms s.dir dirtyHello
+                    |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Just (Path.toPosixString s.dir) } [ "--all" ])
+                    |> Task.andThen (\r -> readBack perms srcFile |> Task.map (\after -> { r = r, after = after }))
+                    |> Task.map
+                        (\res ->
+                            Expect.all
+                                [ \_ -> Expect.equal 0 res.r.exitCode
+                                , \_ -> Support.expectContains "Hello.gren" res.r.stdout
+                                , \_ -> Support.expectContains "\n\n\n" res.after
+                                ]
+                                {}
+                        )
+            , U.test "no gren.json exits nonzero" <| \s ->
+                Support.runApp perms s.appPath { cwd = Just (Path.toPosixString s.dir) } [ "--all" ]
+                    |> Task.map (\r -> Expect.notEqual 0 r.exitCode)
+            , U.test "summary reports reformatted count" <| \s ->
+                Support.makeProject perms s.dir dirtyHello
+                    |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Just (Path.toPosixString s.dir) } [ "--all" ])
+                    |> Task.map (\r -> Support.expectContains "1 files reformatted" r.stdout)
+            , U.test "summary reports 0 reformatted when files already formatted" <| \s ->
+                Support.makeProject perms s.dir dirtyHello
+                    |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Just (Path.toPosixString s.dir) } [ "--all" ])
+                    |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Just (Path.toPosixString s.dir) } [ "--all" ])
+                    |> Task.map (\r -> Support.expectContains "0 files reformatted" r.stdout)
+            ]
+        }

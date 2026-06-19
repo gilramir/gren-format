@@ -136,10 +136,10 @@ run { fsPermission, pathToString, projectPath, outline } =
                 let
                     processFn { path, source } previous =
                         Task.andThen
-                            (\previousFiles ->
+                            (\acc ->
                                 if path.extension /= "gren" then
                                     -- Probably kernel code
-                                    Task.succeed previousFiles
+                                    Task.succeed acc
                                 else
                                     let
                                         relPath =
@@ -150,19 +150,35 @@ run { fsPermission, pathToString, projectPath, outline } =
                                             Task.fail err
 
                                         Ok pretty ->
-                                            atomicWrite fsPermission path pretty
-                                                |> Task.map (\_ ->
-                                                    Array.pushLast (pathToString path) previousFiles
-                                                )
+                                            if pretty ++ "\n" == source then
+                                                Task.succeed { acc | skipped = acc.skipped + 1 }
+                                            else
+                                                atomicWrite fsPermission path pretty
+                                                    |> Task.map (\_ ->
+                                                        { acc | rewritten = Array.pushLast (pathToString path) acc.rewritten }
+                                                    )
                             )
                             previous
+
+                    summarize { rewritten, skipped } =
+                        let
+                            paths =
+                                if Array.length rewritten > 0 then
+                                    String.join "\n" rewritten ++ "\n"
+                                else
+                                    ""
+
+                            rewrittenCount = String.fromInt (Array.length rewritten)
+                            skippedCount = String.fromInt skipped
+                        in
+                        paths ++ rewrittenCount ++ " files reformatted, " ++ skippedCount ++ " files already formatted."
                 in
                 if files == [] then
                     Task.fail NothingToFormat
 
                 else
-                    Array.foldl processFn (Task.succeed []) files
-                        |> Task.map (String.join "\n")
+                    Array.foldl processFn (Task.succeed { rewritten = [], skipped = 0 }) files
+                        |> Task.map summarize
             )
 
 
