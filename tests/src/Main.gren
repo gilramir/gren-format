@@ -36,6 +36,8 @@ main =
                 Init.await FileSystem.initialize <| \fs ->
                 Init.await ChildProcess.initialize <| \cp ->
                     done { fs = fs, childProcess = cp }
+        , globalSetUp = U.noFixture
+        , globalTearDown = U.noTearDown
         , suites =
             \perms ->
                 [ noArgsSuite perms
