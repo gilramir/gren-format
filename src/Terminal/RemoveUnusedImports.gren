@@ -1,0 +1,340 @@
+module Terminal.RemoveUnusedImports exposing (removeUnusedImports)
+
+
+import Array.Builder as Builder
+import Compiler.Ast.Source as Src
+import Compiler.Parse.Context as Ctx
+import Compiler.SourcePosition exposing (Located)
+
+
+-- ENTRY POINT
+
+
+{-| Remove imports not referenced anywhere in the module body.
+
+Open-expose imports (exposing (..)) are always kept — we can't analyze them
+without knowing the imported module's exports.  Explicit-expose imports are
+kept conservatively: if any exposed name appears anywhere in the code
+(even shadowed), the import is kept.
+
+Comments whose start row falls within a removed import's row range are
+also removed. Comments outside that range are preserved unchanged.
+-}
+removeUnusedImports : Src.Module -> Ctx.Context -> { module_ : Src.Module, context : Ctx.Context }
+removeUnusedImports modAst ctx =
+    let
+        refs =
+            refsFromModule modAst
+
+        partition =
+            Array.foldl
+                (\locImport acc ->
+                    if importIsUsed refs locImport.value then
+                        { acc | kept = Array.pushLast locImport acc.kept }
+                    else
+                        { acc | removed = Array.pushLast locImport acc.removed }
+                )
+                { kept = [], removed = [] }
+                modAst.imports
+
+        filteredComments =
+            Builder.toArray ctx.comments
+                |> Array.keepIf (\c -> not (commentIsInsideAny partition.removed c))
+                |> Builder.fromArray
+    in
+    { module_ = { modAst | imports = partition.kept }
+    , context = { ctx | comments = filteredComments }
+    }
+
+
+-- COMMENT FILTERING
+
+
+commentIsInsideAny : Array (Located Src.Import) -> Located Ctx.Comment -> Bool
+commentIsInsideAny removedImports locComment =
+    Array.any
+        (\locImport ->
+            locComment.start.row >= locImport.start.row
+                && locComment.start.row <= locImport.end.row
+        )
+        removedImports
+
+
+-- IMPORT USAGE CHECK
+
+
+importIsUsed : Refs -> Src.Import -> Bool
+importIsUsed refs import_ =
+    let
+        qualifier =
+            when import_.alias is
+                Just alias_ -> alias_
+                Nothing -> import_.module_.value
+    in
+    when import_.expose is
+        Src.Open ->
+            True
+
+        Src.Explicit exposed ->
+            Array.member qualifier refs.qualifiers
+                || Array.any (exposedIsUsed refs) exposed
+
+
+exposedIsUsed : Refs -> Src.Exposed -> Bool
+exposedIsUsed refs exposed =
+    when exposed is
+        Src.ExposedLower locName ->
+            Array.member locName.value refs.names
+
+        Src.ExposedUpper { name } ->
+            Array.member name.value refs.names
+
+        Src.ExposedOperator locOp ->
+            Array.member locOp.value refs.operators
+
+
+-- REFERENCE COLLECTION
+--
+-- refs.qualifiers  — module qualifier strings from VarQual, PCtorQual, TTypeQual
+-- refs.names       — unqualified names from Var, PCtor, TType
+-- refs.operators   — operator symbols from Operator and Binops
+
+
+type alias Refs =
+    { qualifiers : Array String
+    , names : Array String
+    , operators : Array String
+    }
+
+
+emptyRefs : Refs
+emptyRefs =
+    { qualifiers = []
+    , names = []
+    , operators = []
+    }
+
+
+mergeRefs : Refs -> Refs -> Refs
+mergeRefs a b =
+    { qualifiers = Array.append a.qualifiers b.qualifiers
+    , names = Array.append a.names b.names
+    , operators = Array.append a.operators b.operators
+    }
+
+
+refsFromModule : Src.Module -> Refs
+refsFromModule modAst =
+    Array.foldl (\locDecl acc -> mergeRefs acc (refsFromValue locDecl.value.value)) emptyRefs modAst.values
+        |> mergeRefs (Array.foldl (\locDecl acc -> mergeRefs acc (refsFromUnion locDecl.value.value)) emptyRefs modAst.unions)
+        |> mergeRefs (Array.foldl (\locDecl acc -> mergeRefs acc (refsFromAlias locDecl.value.value)) emptyRefs modAst.aliases)
+        |> mergeRefs (refsFromEffects modAst.effects)
+
+
+refsFromValue : Src.Value -> Refs
+refsFromValue value =
+    let
+        argRefs =
+            Array.foldl (\p acc -> mergeRefs acc (refsFromPattern p)) emptyRefs value.args
+
+        sigRefs =
+            when value.signature is
+                Nothing -> emptyRefs
+                Just { type_ } -> refsFromType type_
+    in
+    argRefs
+        |> mergeRefs (refsFromExpression value.body)
+        |> mergeRefs sigRefs
+
+
+refsFromExpression : Src.Expression -> Refs
+refsFromExpression expr =
+    when expr.value is
+        Src.CharLiteral _ ->
+            emptyRefs
+
+        Src.StringLiteral _ ->
+            emptyRefs
+
+        Src.NumberLiteral _ ->
+            emptyRefs
+
+        Src.Var { name } ->
+            { emptyRefs | names = [name] }
+
+        Src.VarQual { qualifier } ->
+            { emptyRefs | qualifiers = [qualifier] }
+
+        Src.ArrayLiteral exprs ->
+            Array.foldl (\e acc -> mergeRefs acc (refsFromExpression e)) emptyRefs exprs
+
+        Src.Record fields ->
+            Array.foldl (\f acc -> mergeRefs acc (refsFromExpression f.value)) emptyRefs fields
+
+        Src.Update { record, newValues } ->
+            Array.foldl
+                (\f acc -> mergeRefs acc (refsFromExpression f.value))
+                (refsFromExpression record)
+                newValues
+
+        Src.Operator op ->
+            { emptyRefs | operators = [op] }
+
+        Src.Negate e ->
+            refsFromExpression e
+
+        Src.Binops { left, operator, right } ->
+            refsFromExpression left
+                |> mergeRefs { emptyRefs | operators = [operator.value] }
+                |> mergeRefs (refsFromExpression right)
+
+        Src.Lambda { patterns, body } ->
+            Array.foldl (\p acc -> mergeRefs acc (refsFromPattern p)) emptyRefs patterns
+                |> mergeRefs (refsFromExpression body)
+
+        Src.Call { fn, args } ->
+            Array.foldl (\a acc -> mergeRefs acc (refsFromExpression a)) (refsFromExpression fn) args
+
+        Src.Let { defs, body } ->
+            Array.foldl (\locDef acc -> mergeRefs acc (refsFromDef locDef.value)) emptyRefs defs
+                |> mergeRefs (refsFromExpression body)
+
+        Src.If { branches, elseBranch } ->
+            Array.foldl
+                (\b acc ->
+                    acc
+                        |> mergeRefs (refsFromExpression b.test)
+                        |> mergeRefs (refsFromExpression b.body)
+                )
+                emptyRefs
+                branches
+                |> mergeRefs (refsFromExpression elseBranch)
+
+        Src.When { expression, branches } ->
+            Array.foldl
+                (\b acc ->
+                    acc
+                        |> mergeRefs (refsFromPattern b.pattern)
+                        |> mergeRefs (refsFromExpression b.body)
+                )
+                (refsFromExpression expression)
+                branches
+
+        Src.Accessor _ ->
+            emptyRefs
+
+        Src.Access { expression } ->
+            refsFromExpression expression
+
+        Src.Parens e ->
+            refsFromExpression e
+
+
+refsFromDef : Src.Def -> Refs
+refsFromDef def =
+    when def is
+        Src.Define { args, body, typeSignature } ->
+            let
+                argRefs =
+                    Array.foldl (\p acc -> mergeRefs acc (refsFromPattern p)) emptyRefs args
+
+                sigRefs =
+                    when typeSignature is
+                        Nothing -> emptyRefs
+                        Just typ -> refsFromType typ
+            in
+            argRefs
+                |> mergeRefs (refsFromExpression body)
+                |> mergeRefs sigRefs
+
+        Src.Destruct { pattern, body } ->
+            mergeRefs (refsFromPattern pattern) (refsFromExpression body)
+
+
+refsFromPattern : Src.Pattern -> Refs
+refsFromPattern pat =
+    when pat.value is
+        Src.PAnything _ ->
+            emptyRefs
+
+        Src.PVar _ ->
+            emptyRefs
+
+        Src.PRecord _ ->
+            emptyRefs
+
+        Src.PAlias { pattern } ->
+            refsFromPattern pattern
+
+        Src.PCtor { name } ->
+            { emptyRefs | names = [name.value] }
+
+        Src.PCtorQual { module_ } ->
+            { emptyRefs | qualifiers = [module_] }
+
+        Src.PArray pats ->
+            Array.foldl (\p acc -> mergeRefs acc (refsFromPattern p)) emptyRefs pats
+
+        Src.PChr _ ->
+            emptyRefs
+
+        Src.PStr _ ->
+            emptyRefs
+
+        Src.PInt _ ->
+            emptyRefs
+
+
+refsFromType : Src.Type -> Refs
+refsFromType typ =
+    when typ.value is
+        Src.TLambda { from, to } ->
+            mergeRefs (refsFromType from) (refsFromType to)
+
+        Src.TVar _ ->
+            emptyRefs
+
+        Src.TType { name, args } ->
+            Array.foldl (\a acc -> mergeRefs acc (refsFromType a)) { emptyRefs | names = [name.value] } args
+
+        Src.TTypeQual { qualifier, args } ->
+            Array.foldl (\a acc -> mergeRefs acc (refsFromType a)) { emptyRefs | qualifiers = [qualifier] } args
+
+        Src.TRecord { fields } ->
+            Array.foldl (\f acc -> mergeRefs acc (refsFromType f.signature)) emptyRefs fields
+
+        Src.TParens t ->
+            refsFromType t
+
+
+refsFromAlias : Src.Alias -> Refs
+refsFromAlias alias_ =
+    refsFromType alias_.type_
+
+
+refsFromUnion : Src.Union -> Refs
+refsFromUnion union =
+    Array.foldl
+        (\locVariant acc ->
+            when locVariant.value.payload is
+                Nothing -> acc
+                Just typ -> mergeRefs acc (refsFromType typ)
+        )
+        emptyRefs
+        union.variants
+
+
+refsFromEffects : Src.Effects -> Refs
+refsFromEffects effects =
+    when effects is
+        Src.NoEffects ->
+            emptyRefs
+
+        Src.Ports ports ->
+            Array.foldl
+                (\locDecl acc -> mergeRefs acc (refsFromType locDecl.value.value.signature))
+                emptyRefs
+                ports
+
+        Src.Manager _ ->
+            emptyRefs

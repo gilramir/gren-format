@@ -25,6 +25,7 @@ import Formatter.MakePretty exposing (makePrettyResult)
 import Formatter.LPTJson as LPTJson
 import Formatter.PExJson as PExJson
 import Compiler.Outline as Outline exposing (Outline)
+import Terminal.RemoveUnusedImports as RUI
 import Terminal.Report as Report exposing (Report)
 import Terminal.ProjectOutline as ProjectOutline
 import Argparse.PrettyPrinter as PP
@@ -42,6 +43,7 @@ type alias Config =
     , pathToString : Path -> String
     , projectPath : Path
     , outline : Outline
+    , removeUnusedImports : Bool
     }
 
 
@@ -58,11 +60,11 @@ type Error
 
 
 {-| Full format-and-verify pipeline:
-  parse → format1 → reparse → AST compare → format2 → idempotency compare.
+  parse → [optionally remove unused imports] → format1 → reparse → AST compare → format2 → idempotency compare.
   Returns the canonical formatted string on success.
 -}
-formatAndVerify : Path -> String -> Result Error String
-formatAndVerify path source =
+formatAndVerify : Bool -> Path -> String -> Result Error String
+formatAndVerify doRemoveUnusedImports path source =
     let
         parser =
             Parser.succeed (\ast payload -> { ast = ast, payload = payload })
@@ -74,7 +76,14 @@ formatAndVerify path source =
             Err (ParseFailure { path = path, error = PM.errorsToString source errs })
 
         Ok { ast = ast1, payload = payload1 } ->
-            when makeLogicalPrintingTree ast1 payload1 is
+            let
+                transformed =
+                    if doRemoveUnusedImports then
+                        RUI.removeUnusedImports ast1 payload1
+                    else
+                        { module_ = ast1, context = payload1 }
+            in
+            when makeLogicalPrintingTree transformed.module_ transformed.context is
                 Err errString ->
                     Err (PrettyPrintFailure { path = path, error = errString })
 
@@ -89,7 +98,7 @@ formatAndVerify path source =
                                     Err (CheckReparseFailed { path = path, error = PM.errorsToString pretty1 errs })
 
                                 Ok { ast = ast2, payload = payload2 } ->
-                                    when AstCompare.compareModules ast1 ast2 is
+                                    when AstCompare.compareModules transformed.module_ ast2 is
                                         Err explanation ->
                                             Err (AstMismatchAfterFormat { path = path, explanation = explanation })
 
@@ -128,7 +137,7 @@ atomicWrite fsPermission path pretty =
 
 
 run : Config -> Task Error String
-run { fsPermission, pathToString, projectPath, outline } =
+run { fsPermission, pathToString, projectPath, outline, removeUnusedImports } =
     Outline.findSourceFiles fsPermission outline projectPath
         |> Task.mapError FailedToFindSources
         |> Task.andThen
@@ -145,7 +154,7 @@ run { fsPermission, pathToString, projectPath, outline } =
                                         relPath =
                                             pathRelativeFrom projectPath path
                                     in
-                                    when formatAndVerify relPath source is
+                                    when formatAndVerify removeUnusedImports relPath source is
                                         Err err ->
                                             Task.fail err
 
@@ -185,8 +194,8 @@ run { fsPermission, pathToString, projectPath, outline } =
 {-| Format a single file and overwrite it in place (atomic write).
     Returns True if the file was rewritten, False if it was already formatted.
 -}
-formatFile : { fsPermission : FileSystem.Permission } -> Path -> Task Error Bool
-formatFile { fsPermission } path =
+formatFile : { fsPermission : FileSystem.Permission, removeUnusedImports : Bool } -> Path -> Task Error Bool
+formatFile { fsPermission, removeUnusedImports } path =
     FileSystem.readFile fsPermission path
         |> Task.mapError (\fsErr -> ShowReadFailure { path = path, error = FileSystem.errorToString fsErr })
         |> Task.andThen
@@ -196,7 +205,7 @@ formatFile { fsPermission } path =
                         Task.fail (ShowReadFailure { path = path, error = "File content is not valid UTF-8" })
 
                     Just source ->
-                        when formatAndVerify path source is
+                        when formatAndVerify removeUnusedImports path source is
                             Err err ->
                                 Task.fail err
 
@@ -209,8 +218,8 @@ formatFile { fsPermission } path =
             )
 
 
-showFile : { stdout : Stream.Writable Bytes, fsPermission : FileSystem.Permission } -> Path -> Task Error {}
-showFile { stdout, fsPermission } path =
+showFile : { stdout : Stream.Writable Bytes, fsPermission : FileSystem.Permission, removeUnusedImports : Bool } -> Path -> Task Error {}
+showFile { stdout, fsPermission, removeUnusedImports } path =
     FileSystem.readFile fsPermission path
         |> Task.mapError (\fsErr -> ShowReadFailure { path = path, error = FileSystem.errorToString fsErr })
         |> Task.andThen
@@ -220,7 +229,7 @@ showFile { stdout, fsPermission } path =
                         Task.fail (ShowReadFailure { path = path, error = "File content is not valid UTF-8" })
 
                     Just source ->
-                        when formatAndVerify path source is
+                        when formatAndVerify removeUnusedImports path source is
                             Err err ->
                                 Task.fail err
 

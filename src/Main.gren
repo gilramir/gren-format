@@ -27,6 +27,7 @@ import Terminal.Report as Report
 type alias FormatFlags =
     { files : Array Path
     , all : Bool
+    , removeUnusedImports : Bool
     , show : Maybe Path
     , preAst : Maybe Path
     , postAst : Maybe Path
@@ -51,9 +52,10 @@ command =
             }
     , flags =
         AP.initFlags
-            (\all show preAst postAst lpt pex ->
+            (\all removeUnusedImports show preAst postAst lpt pex ->
                 { files = []
                 , all = all
+                , removeUnusedImports = removeUnusedImports
                 , show = show
                 , preAst = preAst
                 , postAst = postAst
@@ -62,6 +64,7 @@ command =
                 }
             )
             |> AP.toggle (AP.Both { long = "all", short = "a" }) "Format all source files under src/, overwriting them in place"
+            |> AP.toggle (AP.LongOnly "remove-unused-imports") "Remove unused imports while formatting"
             |> AP.flag (AP.LongOnly "show") AP.pathParser "Parse and pretty-print a single file to stdout without modifying it"
             |> AP.flag (AP.LongOnly "pre-ast") AP.pathParser "Parse a single file and print its AST as JSON to stdout"
             |> AP.flag (AP.LongOnly "post-ast") AP.pathParser "Parse and format a file, verify the ASTs match, then print the formatted file's AST as JSON to stdout"
@@ -107,6 +110,12 @@ onCommand env context flags =
             { stdout = env.stdout
             , fsPermission = context.fs
             }
+
+        showConfig =
+            { stdout = env.stdout
+            , fsPermission = context.fs
+            , removeUnusedImports = flags.removeUnusedImports
+            }
     in
     if not (Array.isEmpty flags.files) then
         let
@@ -126,7 +135,7 @@ onCommand env context flags =
                     task
                         |> Task.andThen
                             (\counts ->
-                                Format.formatFile { fsPermission = context.fs } path
+                                Format.formatFile { fsPermission = context.fs, removeUnusedImports = flags.removeUnusedImports } path
                                     |> Task.map
                                         (\wasRewritten ->
                                             if wasRewritten then
@@ -149,7 +158,7 @@ onCommand env context flags =
     else
         when flags.show is
             Just path ->
-                runFileOp context.useColor (Format.showFile fileConfig path)
+                runFileOp context.useColor (Format.showFile showConfig path)
 
             Nothing ->
                 when flags.preAst is
@@ -192,6 +201,7 @@ formatProject env context flags =
                         , pathToString = Path.toPosixString
                         , projectPath = projectPath
                         , outline = outline
+                        , removeUnusedImports = flags.removeUnusedImports
                         }
                         |> Task.mapError (\err -> reportToString context.useColor (Format.prettifyError err))
                 )
