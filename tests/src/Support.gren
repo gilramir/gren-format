@@ -1,5 +1,6 @@
 module Support exposing
-    ( RunResult
+    ( Perms
+    , RunResult
     , runApp
     , locateApp
     , expectContains
@@ -22,13 +23,18 @@ import FileSystem
 import FileSystem.Path as Path exposing (Path)
 import Json.Decode as Decode
 import Task exposing (Task)
-import Test.Unit as U
 
 
 {-| Both subprocess channels, normalized: a clean exit becomes `exitCode = 0`,
 a nonzero exit (a `ProgramError`) preserves the real code, and a failure to even
 launch fails the task (→ the test errors).
 -}
+type alias Perms =
+    { fs : FileSystem.Permission
+    , childProcess : ChildProcess.Permission
+    }
+
+
 type alias RunResult =
     { exitCode : Int
     , stdout : String
@@ -36,7 +42,7 @@ type alias RunResult =
     }
 
 
-runApp : U.Permissions -> String -> { cwd : Maybe String } -> Array String -> Task String RunResult
+runApp : Perms -> String -> { cwd : Maybe String } -> Array String -> Task String RunResult
 runApp perms appPath options args =
     let
         opts =
@@ -70,7 +76,7 @@ runApp perms appPath options args =
 launches when a test points the subprocess's working directory at a temp dir.
 The test runner's own cwd is `gren-format/tests/`, so the app is one level up.
 -}
-locateApp : U.Permissions -> Task String String
+locateApp : Perms -> Task String String
 locateApp perms =
     FileSystem.realPath perms.fs (Path.fromPosixString "../app")
         |> Task.map Path.toPosixString
@@ -138,7 +144,7 @@ expectJsonArray out =
 -- FILESYSTEM PROVISIONING
 
 
-writeText : U.Permissions -> Path -> String -> Task String {}
+writeText : Perms -> Path -> String -> Task String {}
 writeText perms path text =
     FileSystem.writeFile perms.fs (Bytes.fromString text) path
         |> Task.map (\_ -> {})
@@ -148,7 +154,7 @@ writeText perms path text =
 {-| Provision a minimal Gren application under `dir`: a `gren.json` plus
 `src/Hello.gren` with the given (dirty) contents — the `--all` test's fixture.
 -}
-makeProject : U.Permissions -> Path -> String -> Task String {}
+makeProject : Perms -> Path -> String -> Task String {}
 makeProject perms dir helloContents =
     FileSystem.makeDirectory perms.fs { recursive = True } (Path.append (Path.fromPosixString "src") dir)
         |> Task.mapError (\e -> "mkdir src: " ++ Debug.toString e)

@@ -15,20 +15,27 @@ replacement, cleaned up even when a test fails). Run it like the unittest CLI:
 -}
 
 import Bytes
+import ChildProcess
 import Expect
 import FileSystem
 import FileSystem.Path as Path exposing (Path)
+import Init
 import Node
 import Task
 import Test.Unit as U
-import Support exposing (RunResult)
+import Support exposing (RunResult, Perms)
 
 
 main : Node.SimpleProgram a
 main =
-    U.run
+    U.runWith
         { name = "gren-format-cli-tests"
         , version = "1.0.0"
+        , init =
+            \done ->
+                Init.await FileSystem.initialize <| \fs ->
+                Init.await ChildProcess.initialize <| \cp ->
+                    done { fs = fs, childProcess = cp }
         , suites =
             \perms ->
                 [ noArgsSuite perms
@@ -61,14 +68,14 @@ type alias Scratch =
     }
 
 
-makeScratch : U.Permissions -> String -> Task.Task String Scratch
+makeScratch : Perms -> String -> Task.Task String Scratch
 makeScratch perms appPath =
     FileSystem.makeTempDirectory perms.fs "gren-format-test"
         |> Task.map (\dir -> { appPath = appPath, dir = dir })
         |> Task.mapError (\e -> "makeTempDirectory: " ++ Debug.toString e)
 
 
-removeScratch : U.Permissions -> Scratch -> Task.Task String {}
+removeScratch : Perms -> Scratch -> Task.Task String {}
 removeScratch perms scratch =
     FileSystem.remove perms.fs { recursive = True } scratch.dir
         |> Task.map (\_ -> {})
@@ -79,7 +86,7 @@ removeScratch perms scratch =
 -- SUITE: no args / --help (no scratch needed; test fixture is just the app path)
 
 
-noArgsSuite : U.Permissions -> U.Suite
+noArgsSuite : Perms -> U.Suite
 noArgsSuite perms =
     U.suite
         { name = "NoArgs"
@@ -116,7 +123,7 @@ noArgsSuite perms =
 -- SUITE: --show
 
 
-showFlagSuite : U.Permissions -> U.Suite
+showFlagSuite : Perms -> U.Suite
 showFlagSuite perms =
     U.suite
         { name = "ShowFlag"
@@ -155,7 +162,7 @@ showFlagSuite perms =
 -- SUITE: --pre-ast / --post-ast / --lpt / --pex
 
 
-jsonFlagsSuite : U.Permissions -> U.Suite
+jsonFlagsSuite : Perms -> U.Suite
 jsonFlagsSuite perms =
     U.suite
         { name = "JsonFlags"
@@ -180,7 +187,7 @@ jsonFlagsSuite perms =
         }
 
 
-runJson : U.Permissions -> String -> String -> Task.Task String RunResult
+runJson : Perms -> String -> String -> Task.Task String RunResult
 runJson perms appPath flag =
     Support.runApp perms appPath { cwd = Nothing } [ flag, helloFixture ]
 
@@ -198,7 +205,7 @@ jsonOk r jsonExpectation =
 -- SUITE: positional args (format in place)
 
 
-positionalSuite : U.Permissions -> U.Suite
+positionalSuite : Perms -> U.Suite
 positionalSuite perms =
     U.suite
         { name = "Positional"
@@ -264,7 +271,7 @@ positionalSuite perms =
         }
 
 
-readBack : U.Permissions -> Path -> Task.Task String String
+readBack : Perms -> Path -> Task.Task String String
 readBack perms path =
     FileSystem.readFile perms.fs path
         |> Task.map (\bytes -> Bytes.toString bytes |> Maybe.withDefault "")
@@ -284,7 +291,7 @@ formattedInPlace r after =
 -- SUITE: --all
 
 
-allFlagSuite : U.Permissions -> U.Suite
+allFlagSuite : Perms -> U.Suite
 allFlagSuite perms =
     U.suite
         { name = "AllFlag"
