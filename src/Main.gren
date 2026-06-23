@@ -14,12 +14,12 @@ import Argparse.Program as Program
 import Dict
 import FileSystem
 import FileSystem.Path as Path exposing (Path)
+import Format
 import Init
 import Node
 import Stream.Log
 import Task exposing (Task)
 import Terminal
-import Terminal.Format as Format
 import Terminal.ProjectOutline as ProjectOutline
 import Cli.Report as Report
 

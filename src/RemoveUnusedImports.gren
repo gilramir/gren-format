@@ -1,4 +1,4 @@
-module Terminal.RemoveUnusedImports exposing (removeUnusedImports)
+module RemoveUnusedImports exposing (removeUnusedImports)
 
 
 import Array.Builder as Builder

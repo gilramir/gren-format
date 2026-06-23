@@ -1,4 +1,4 @@
-module Terminal.Format exposing
+module Format exposing
     ( Config
     , Error(..)
     , run
@@ -25,7 +25,7 @@ import Formatter.MakePretty exposing (makePrettyResult)
 import Formatter.LPTJson as LPTJson
 import Formatter.PExJson as PExJson
 import Compiler.Outline as Outline exposing (Outline)
-import Terminal.RemoveUnusedImports as RUI
+import RemoveUnusedImports as RUI
 import Cli.Report as Report exposing (Report)
 import Terminal.ProjectOutline as ProjectOutline
 import Cli.PrettyPrinter as PP
