@@ -26,9 +26,9 @@ import Formatter.LPTJson as LPTJson
 import Formatter.PExJson as PExJson
 import Compiler.Outline as Outline exposing (Outline)
 import Terminal.RemoveUnusedImports as RUI
-import Terminal.Report as Report exposing (Report)
+import Cli.Report as Report exposing (Report)
 import Terminal.ProjectOutline as ProjectOutline
-import Argparse.PrettyPrinter as PP
+import Cli.PrettyPrinter as PP
 import Compiler.Parse.Module as PM
 import Compiler.Parse.Context as Context
 import Compiler.Ast.Source.Json as SourceJson

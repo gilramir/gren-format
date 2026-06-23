@@ -21,7 +21,7 @@ import Task exposing (Task)
 import Terminal
 import Terminal.Format as Format
 import Terminal.ProjectOutline as ProjectOutline
-import Terminal.Report as Report
+import Cli.Report as Report
 
 
 type alias FormatFlags =

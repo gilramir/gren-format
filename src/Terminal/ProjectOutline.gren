@@ -16,8 +16,8 @@ import Compiler.Outline as Outline exposing (Outline)
 import FileSystem
 import FileSystem.Path as Path exposing (Path)
 import Json.Decode as Decode
-import Argparse.PrettyPrinter as PP
-import Terminal.Report as Report exposing (Report)
+import Cli.PrettyPrinter as PP
+import Cli.Report as Report exposing (Report)
 import Task exposing (Task)
 
 
