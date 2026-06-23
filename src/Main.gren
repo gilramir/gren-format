@@ -48,7 +48,7 @@ command =
     , arguments =
         AP.zeroOrMoreArgs
             { value = AP.pathParser
-            , help = "Gren source file to pretty-print"
+            , help = "Gren source file or directory to pretty-print in place"
             }
     , flags =
         AP.initFlags
@@ -135,13 +135,26 @@ onCommand env context flags =
                     task
                         |> Task.andThen
                             (\counts ->
-                                Format.formatFile { fsPermission = context.fs, removeUnusedImports = flags.removeUnusedImports } path
-                                    |> Task.map
-                                        (\wasRewritten ->
-                                            if wasRewritten then
-                                                { counts | rewritten = counts.rewritten + 1 }
-                                            else
-                                                { counts | skipped = counts.skipped + 1 }
+                                Format.expandPathToFiles context.fs path
+                                    |> Task.andThen
+                                        (\filePaths ->
+                                            Array.foldl
+                                                (\filePath innerTask ->
+                                                    innerTask
+                                                        |> Task.andThen
+                                                            (\innerCounts ->
+                                                                Format.formatFile { fsPermission = context.fs, removeUnusedImports = flags.removeUnusedImports } filePath
+                                                                    |> Task.map
+                                                                        (\wasRewritten ->
+                                                                            if wasRewritten then
+                                                                                { innerCounts | rewritten = innerCounts.rewritten + 1 }
+                                                                            else
+                                                                                { innerCounts | skipped = innerCounts.skipped + 1 }
+                                                                        )
+                                                            )
+                                                )
+                                                (Task.succeed counts)
+                                                filePaths
                                         )
                             )
                 )

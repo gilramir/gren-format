@@ -2,6 +2,7 @@ module Format exposing
     ( Config
     , Error(..)
     , run
+    , expandPathToFiles
     , formatFile
     , showFile
     , preAstFile
@@ -12,6 +13,7 @@ module Format exposing
     )
 
 
+import Char
 import Stream
 import Stream.Log
 import Task exposing (Task)
@@ -117,6 +119,45 @@ formatAndVerify doRemoveUnusedImports path source =
                                                                 Ok pretty1
                                                             else
                                                                 Err (NotIdempotent { path = path, diff = unifiedDiffStrings pretty1 pretty2 })
+
+
+{-| Expand a path argument to a list of files to format.
+    If the path is a directory, returns all Gren source files directly in it
+    (non-recursive; symlinks are skipped). A Gren source file has a `.gren`
+    extension and a name starting with a capital ASCII letter.
+    For any other path type (regular file, symlink, …), returns [path].
+-}
+expandPathToFiles : FileSystem.Permission -> Path -> Task Error (Array Path)
+expandPathToFiles fsPermission path =
+    FileSystem.metadata fsPermission { resolveLink = False } path
+        |> Task.mapError (\fsErr -> ShowReadFailure { path = path, error = FileSystem.errorToString fsErr })
+        |> Task.andThen
+            (\meta ->
+                if meta.entityType == FileSystem.Directory then
+                    FileSystem.listDirectory fsPermission path
+                        |> Task.mapError (\fsErr -> ShowReadFailure { path = path, error = FileSystem.errorToString fsErr })
+                        |> Task.map
+                            (\entries ->
+                                entries
+                                    |> Array.keepIf (\e -> e.entityType == FileSystem.File)
+                                    |> Array.keepIf (\e -> e.path.extension == "gren")
+                                    |> Array.keepIf (\e -> isGrenSourceName e.path.filename)
+                                    |> Array.map (\e -> Path.prepend path e.path)
+                            )
+
+                else
+                    Task.succeed [ path ]
+            )
+
+
+isGrenSourceName : String -> Bool
+isGrenSourceName name =
+    when String.popFirst name is
+        Just { first } ->
+            Char.isUpper first
+
+        Nothing ->
+            False
 
 
 {-| Atomically overwrite a single file with its formatted content.
