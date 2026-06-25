@@ -103,7 +103,7 @@ main =
         }
 
 
-onCommand : Node.Environment -> Context -> FormatFlags -> Task String Program.Outcome
+onCommand : Node.Environment -> Context -> FormatFlags -> Task Program.Failure {}
 onCommand env context flags =
     let
         fileConfig =
@@ -128,7 +128,7 @@ onCommand env context flags =
                     || flags.pex /= Nothing
         in
         if anyFlagSet then
-            Task.fail "Cannot combine file path arguments with flags. Use --help for options."
+            Task.fail (Program.ExitMessage "Cannot combine file path arguments with flags. Use --help for options.")
         else
             Array.foldl
                 (\path task ->
@@ -160,13 +160,13 @@ onCommand env context flags =
                 )
                 (Task.succeed { rewritten = 0, skipped = 0 })
                 flags.files
-                |> Task.mapError (\err -> reportToString context.useColor (Format.prettifyError err))
+                |> Task.mapError (\err -> Program.ExitMessage (reportToString context.useColor (Format.prettifyError err)))
                 |> Task.andThen
                     (\{ rewritten, skipped } ->
                         Stream.Log.line env.stdout
                             (String.fromInt rewritten ++ " files reformatted, " ++ String.fromInt skipped ++ " files already formatted.")
                     )
-                |> Task.map (\_ -> Program.Succeeded)
+                |> Task.map (\_ -> {})
 
     else
         when flags.show is
@@ -197,15 +197,15 @@ onCommand env context flags =
                                                 formatProject env context flags
 
 
-formatProject : Node.Environment -> Context -> FormatFlags -> Task String Program.Outcome
+formatProject : Node.Environment -> Context -> FormatFlags -> Task Program.Failure {}
 formatProject env context flags =
     if not flags.all then
         Stream.Log.line env.stdout "The default action is disabled. Use --all to actually overwrite your files. Or --help for other options."
-            |> Task.map (\_ -> Program.Succeeded)
+            |> Task.map (\_ -> {})
 
     else
         ProjectOutline.readProjectOutline context.fs
-            |> Task.mapError (\err -> reportToString context.useColor (ProjectOutline.prettifyProjectOutlineError err))
+            |> Task.mapError (\err -> Program.ExitMessage (reportToString context.useColor (ProjectOutline.prettifyProjectOutlineError err)))
             |> Task.andThen
                 (\{ projectPath, outline } ->
                     Format.run
@@ -216,19 +216,18 @@ formatProject env context flags =
                         , outline = outline
                         , removeUnusedImports = flags.removeUnusedImports
                         }
-                        |> Task.mapError (\err -> reportToString context.useColor (Format.prettifyError err))
+                        |> Task.mapError (\err -> Program.ExitMessage (reportToString context.useColor (Format.prettifyError err)))
                 )
             |> Task.andThen (\summary -> Stream.Log.line env.stdout summary)
-            |> Task.map (\_ -> Program.Succeeded)
+            |> Task.map (\_ -> {})
 
 
 {-| Run a single-file operation: success exits 0, a `Format.Error` becomes a
 rendered report on stderr (exit 1, via the runner's failed-task path). -}
-runFileOp : Bool -> Task Format.Error {} -> Task String Program.Outcome
+runFileOp : Bool -> Task Format.Error {} -> Task Program.Failure {}
 runFileOp useColor task =
     task
-        |> Task.map (\_ -> Program.Succeeded)
-        |> Task.mapError (\err -> reportToString useColor (Format.prettifyError err))
+        |> Task.mapError (\err -> Program.ExitMessage (reportToString useColor (Format.prettifyError err)))
 
 
 reportToString : Bool -> Report.Report -> String
