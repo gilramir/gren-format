@@ -200,7 +200,7 @@ formatProject env context flags =
             (\err ->
                 when err is
                     ProjectOutline.ReadProjectOutlineNoProject _ ->
-                        Program.ExitMessage "There is no gren.json in this directory. Run `gren-format -h` to see all the options"
+                        Program.ExitMessage "Could not find a gren.json in this directory or any parent directory. Run `gren-format -h` to see all the options"
 
                     _ ->
                         Program.ExitMessage (reportToString context.useColor (ProjectOutline.prettifyProjectOutlineError err))

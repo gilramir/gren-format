@@ -103,7 +103,7 @@ noArgsSuite perms =
                         (\r ->
                             Expect.all
                                 [ \_ -> Expect.notEqual 0 r.exitCode
-                                , \_ -> Support.expectContains "There is no gren.json in this directory" r.stderr
+                                , \_ -> Support.expectContains "Could not find a gren.json" r.stderr
                                 ]
                                 {}
                         )
