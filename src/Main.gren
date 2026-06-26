@@ -3,8 +3,8 @@ module Main exposing (main)
 {-| Standalone `gren-format` CLI built on `Argparse.Program.runRootWithContext`
 (rootless — invoked directly as `gren-format [flags]`, no command word).
 
-With no flags it refuses to do anything (a safety guard); `--all` formats every
-source file in the project in place. The remaining flags are single-file
+With no arguments it formats every source file in the project in place (requires
+`gren.json` in the current directory). The remaining flags are single-file
 inspection/debug aids.
 -}
 
@@ -26,7 +26,6 @@ import Cli.Report as Report
 
 type alias FormatFlags =
     { files : Array Path
-    , all : Bool
     , removeUnusedImports : Bool
     , show : Maybe Path
     , preAst : Maybe Path
@@ -52,9 +51,8 @@ command =
             }
     , flags =
         AP.initFlags
-            (\all removeUnusedImports show preAst postAst lpt pex ->
+            (\removeUnusedImports show preAst postAst lpt pex ->
                 { files = []
-                , all = all
                 , removeUnusedImports = removeUnusedImports
                 , show = show
                 , preAst = preAst
@@ -63,7 +61,6 @@ command =
                 , pex = pex
                 }
             )
-            |> AP.toggle (AP.Both { long = "all", short = "a" }) "Format all source files under src/, overwriting them in place"
             |> AP.toggle (AP.LongOnly "remove-unused-imports") "Remove unused imports while formatting"
             |> AP.flag (AP.LongOnly "show") AP.pathParser "Parse and pretty-print a single file to stdout without modifying it"
             |> AP.flag (AP.LongOnly "pre-ast") AP.pathParser "Parse a single file and print its AST as JSON to stdout"
@@ -120,8 +117,7 @@ onCommand env context flags =
     if not (Array.isEmpty flags.files) then
         let
             anyFlagSet =
-                flags.all
-                    || flags.show /= Nothing
+                flags.show /= Nothing
                     || flags.preAst /= Nothing
                     || flags.postAst /= Nothing
                     || flags.lpt /= Nothing
@@ -199,27 +195,30 @@ onCommand env context flags =
 
 formatProject : Node.Environment -> Context -> FormatFlags -> Task Program.Failure {}
 formatProject env context flags =
-    if not flags.all then
-        Stream.Log.line env.stdout "The default action is disabled. Use --all to actually overwrite your files. Or --help for other options."
-            |> Task.map (\_ -> {})
+    ProjectOutline.readProjectOutline context.fs
+        |> Task.mapError
+            (\err ->
+                when err is
+                    ProjectOutline.ReadProjectOutlineNoProject _ ->
+                        Program.ExitMessage "There is no gren.json in this directory. Run `gren-format -h` to see all the options"
 
-    else
-        ProjectOutline.readProjectOutline context.fs
-            |> Task.mapError (\err -> Program.ExitMessage (reportToString context.useColor (ProjectOutline.prettifyProjectOutlineError err)))
-            |> Task.andThen
-                (\{ projectPath, outline } ->
-                    Format.run
-                        { stdout = env.stdout
-                        , fsPermission = context.fs
-                        , pathToString = Path.toPosixString
-                        , projectPath = projectPath
-                        , outline = outline
-                        , removeUnusedImports = flags.removeUnusedImports
-                        }
-                        |> Task.mapError (\err -> Program.ExitMessage (reportToString context.useColor (Format.prettifyError err)))
-                )
-            |> Task.andThen (\summary -> Stream.Log.line env.stdout summary)
-            |> Task.map (\_ -> {})
+                    _ ->
+                        Program.ExitMessage (reportToString context.useColor (ProjectOutline.prettifyProjectOutlineError err))
+            )
+        |> Task.andThen
+            (\{ projectPath, outline } ->
+                Format.run
+                    { stdout = env.stdout
+                    , fsPermission = context.fs
+                    , pathToString = Path.toPosixString
+                    , projectPath = projectPath
+                    , outline = outline
+                    , removeUnusedImports = flags.removeUnusedImports
+                    }
+                    |> Task.mapError (\err -> Program.ExitMessage (reportToString context.useColor (Format.prettifyError err)))
+            )
+        |> Task.andThen (\summary -> Stream.Log.line env.stdout summary)
+        |> Task.map (\_ -> {})
 
 
 {-| Run a single-file operation: success exits 0, a `Format.Error` becomes a

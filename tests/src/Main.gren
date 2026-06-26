@@ -44,7 +44,7 @@ main =
                 , showFlagSuite perms
                 , jsonFlagsSuite perms
                 , positionalSuite perms
-                , allFlagSuite perms
+                , noArgsFormatSuite perms
                 ]
         }
 
@@ -85,7 +85,7 @@ removeScratch perms scratch =
 
 
 
--- SUITE: no args / --help (no scratch needed; test fixture is just the app path)
+-- SUITE: no args / --help
 
 
 noArgsSuite : Perms -> U.Suite
@@ -94,26 +94,26 @@ noArgsSuite perms =
         { name = "NoArgs"
         , setUpSuite = Support.locateApp perms
         , tearDownSuite = U.noTearDown
-        , setUp = \appPath -> Task.succeed appPath
-        , tearDown = U.noTearDown
+        , setUp = makeScratch perms
+        , tearDown = removeScratch perms
         , tests =
-            [ U.test "prints safety message and exits 0" <| \appPath ->
-                Support.runApp perms appPath { cwd = Nothing } []
+            [ U.test "no gren.json exits nonzero with helpful message" <| \s ->
+                Support.runApp perms s.appPath { cwd = Just (Path.toPosixString s.dir) } []
                     |> Task.map
                         (\r ->
                             Expect.all
-                                [ \_ -> Expect.equal 0 r.exitCode
-                                , \_ -> Support.expectContains "default action is disabled" r.stdout
+                                [ \_ -> Expect.notEqual 0 r.exitCode
+                                , \_ -> Support.expectContains "There is no gren.json in this directory" r.stderr
                                 ]
                                 {}
                         )
-            , U.test "help flag lists --all" <| \appPath ->
-                Support.runApp perms appPath { cwd = Nothing } [ "--help" ]
+            , U.test "help flag lists --show" <| \s ->
+                Support.runApp perms s.appPath { cwd = Nothing } [ "--help" ]
                     |> Task.map
                         (\r ->
                             Expect.all
                                 [ \_ -> Expect.equal 0 r.exitCode
-                                , \_ -> Support.expectContains "--all" r.stdout
+                                , \_ -> Support.expectContains "--show" r.stdout
                                 ]
                                 {}
                         )
@@ -290,13 +290,13 @@ formattedInPlace r after =
 
 
 
--- SUITE: --all
+-- SUITE: no args with gren.json present (formats project in place)
 
 
-allFlagSuite : Perms -> U.Suite
-allFlagSuite perms =
+noArgsFormatSuite : Perms -> U.Suite
+noArgsFormatSuite perms =
     U.suite
-        { name = "AllFlag"
+        { name = "NoArgsFormat"
         , setUpSuite = Support.locateApp perms
         , tearDownSuite = U.noTearDown
         , setUp = makeScratch perms
@@ -308,7 +308,7 @@ allFlagSuite perms =
                         Path.append (Path.fromPosixString "src/Hello.gren") s.dir
                 in
                 Support.makeProject perms s.dir dirtyHello
-                    |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Just (Path.toPosixString s.dir) } [ "--all" ])
+                    |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Just (Path.toPosixString s.dir) } [])
                     |> Task.andThen (\r -> readBack perms srcFile |> Task.map (\after -> { r = r, after = after }))
                     |> Task.map
                         (\res ->
@@ -319,17 +319,14 @@ allFlagSuite perms =
                                 ]
                                 {}
                         )
-            , U.test "no gren.json exits nonzero" <| \s ->
-                Support.runApp perms s.appPath { cwd = Just (Path.toPosixString s.dir) } [ "--all" ]
-                    |> Task.map (\r -> Expect.notEqual 0 r.exitCode)
             , U.test "summary reports reformatted count" <| \s ->
                 Support.makeProject perms s.dir dirtyHello
-                    |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Just (Path.toPosixString s.dir) } [ "--all" ])
+                    |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Just (Path.toPosixString s.dir) } [])
                     |> Task.map (\r -> Support.expectContains "1 files reformatted" r.stdout)
             , U.test "summary reports 0 reformatted when files already formatted" <| \s ->
                 Support.makeProject perms s.dir dirtyHello
-                    |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Just (Path.toPosixString s.dir) } [ "--all" ])
-                    |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Just (Path.toPosixString s.dir) } [ "--all" ])
+                    |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Just (Path.toPosixString s.dir) } [])
+                    |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Just (Path.toPosixString s.dir) } [])
                     |> Task.map (\r -> Support.expectContains "0 files reformatted" r.stdout)
             ]
         }
