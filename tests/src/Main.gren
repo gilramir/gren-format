@@ -182,6 +182,9 @@ jsonFlagsSuite perms =
             , U.test "lpt outputs valid json" <| \appPath ->
                 runJson perms appPath "--lpt"
                     |> Task.map (\r -> jsonOk r (Support.expectJsonValid r.stdout))
+            , U.test "render-doc outputs a json array" <| \appPath ->
+                runJson perms appPath "--render-doc"
+                    |> Task.map (\r -> jsonOk r (Support.expectJsonArray r.stdout))
             ]
         }
 
