@@ -8,7 +8,6 @@ module Format exposing
     , preAstFile
     , postAstFile
     , lptFile
-    , pexFile
     , prettifyError
     )
 
@@ -25,7 +24,6 @@ import UnifiedDiff exposing (unifiedDiffStrings)
 import Formatter.MakeLogical exposing (makeLogicalPrintingTree)
 import Formatter.MakePretty exposing (makePrettyResult)
 import Formatter.LPTJson as LPTJson
-import Formatter.PExJson as PExJson
 import Compiler.Outline as Outline exposing (Outline)
 import RemoveUnusedImports as RUI
 import Cli.Report as Report exposing (Report)
@@ -393,42 +391,6 @@ lptFile { stdout, fsPermission } path =
 
                                     Ok lpt ->
                                         Stream.Log.line stdout (LPTJson.lptToJson lpt)
-            )
-
-
-pexFile : { stdout : Stream.Writable Bytes, fsPermission : FileSystem.Permission } -> Path -> Task Error {}
-pexFile { stdout, fsPermission } path =
-    FileSystem.readFile fsPermission path
-        |> Task.mapError (\fsErr -> ShowReadFailure { path = path, error = FileSystem.errorToString fsErr })
-        |> Task.andThen
-            (\bytes ->
-                when Bytes.toString bytes is
-                    Nothing ->
-                        Task.fail (ShowReadFailure { path = path, error = "File content is not valid UTF-8" })
-
-                    Just source ->
-                        let
-                            parser =
-                                Parser.succeed (\ast payload -> { ast = ast, payload = payload })
-                                    |> Parser.keep PM.parser
-                                    |> Parser.keep Parser.getPayload
-                        in
-                        when Parser.run parser Context.empty source is
-                            Err errs ->
-                                Task.fail (ParseFailure { path = path, error = PM.errorsToString source errs })
-
-                            Ok { ast, payload } ->
-                                when makeLogicalPrintingTree ast payload is
-                                    Err errString ->
-                                        Task.fail (PrettyPrintFailure { path = path, error = errString })
-
-                                    Ok lpt ->
-                                        when PExJson.lptToPexJson lpt is
-                                            Err errString ->
-                                                Task.fail (PrettyPrintFailure { path = path, error = errString })
-
-                                            Ok jsonStr ->
-                                                Stream.Log.line stdout jsonStr
             )
 
 

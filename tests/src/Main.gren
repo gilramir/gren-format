@@ -161,7 +161,7 @@ showFlagSuite perms =
 
 
 
--- SUITE: --pre-ast / --post-ast / --lpt / --pex
+-- SUITE: --pre-ast / --post-ast / --lpt
 
 
 jsonFlagsSuite : Perms -> U.Suite
@@ -182,9 +182,6 @@ jsonFlagsSuite perms =
             , U.test "lpt outputs valid json" <| \appPath ->
                 runJson perms appPath "--lpt"
                     |> Task.map (\r -> jsonOk r (Support.expectJsonValid r.stdout))
-            , U.test "pex outputs a json array" <| \appPath ->
-                runJson perms appPath "--pex"
-                    |> Task.map (\r -> jsonOk r (Support.expectJsonArray r.stdout))
             ]
         }
 
