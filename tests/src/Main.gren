@@ -107,13 +107,14 @@ noArgsSuite perms =
                                 ]
                                 {}
                         )
-            , U.test "help flag lists --show" <| \s ->
+            , U.test "help flag lists --show and --render-doc" <| \s ->
                 Support.runApp perms s.appPath { cwd = Nothing } [ "--help" ]
                     |> Task.map
                         (\r ->
                             Expect.all
                                 [ \_ -> Expect.equal 0 r.exitCode
                                 , \_ -> Support.expectContains "--show" r.stdout
+                                , \_ -> Support.expectContains "--render-doc" r.stdout
                                 ]
                                 {}
                         )
