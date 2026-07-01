@@ -2,4 +2,4 @@
 
 set -e
 
-gren make Main
+devbox run build
