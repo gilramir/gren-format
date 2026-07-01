@@ -96,6 +96,6 @@ test sets the subprocess working directory to a temp dir).
 All local (sibling directories):
 
 - `gilramir/gren-argparse` (`../gren-argparse`) — `Argparse.Parser`, `Argparse.PrettyPrinter`, `Argparse.Program`
-- `gilramir/gren-format-lib` (`../gren-format-lib`) — `Formatter.MakeLogical`, `Formatter.MakePretty`, `Formatter.LPTJson`, `Formatter.PExJson`, plus the AST-comparison and JSON-encoder modules `Compiler.Ast.Compare`, `Compiler.Ast.Source.Json`, `Compiler.Parse.Context.Json` (moved here out of `compiler-common`)
+- `gilramir/gren-format-lib` (`../gren-format-lib`) — `Formatter.MakeLogical`, `Formatter.MakeRender`, `Formatter.LPTJson`, `Formatter.PExJson`, plus the AST-comparison and JSON-encoder modules `Compiler.Ast.Compare`, `Compiler.Ast.Source.Json`, `Compiler.Parse.Context.Json` (moved here out of `compiler-common`)
 - `gren-lang/compiler-common` (`../compiler-common`) — AST types, parser, outline, paths
 - `gren-lang/compiler-node` (`../compiler-node`) — `Compiler.Outline`, `Compiler.Paths`
