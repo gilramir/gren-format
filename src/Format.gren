@@ -23,7 +23,7 @@ import FileSystem.Path as Path exposing (Path)
 import Compiler.Ast.Compare as AstCompare
 import UnifiedDiff exposing (unifiedDiffStrings)
 import Formatter.MakeLogical exposing (makeLogicalPrintingTree)
-import Formatter.MakePretty exposing (makePrettyResult, lptToRenderDocJson)
+import Formatter.MakeRender exposing (makePrettyResult, lptToRenderDocJson)
 import Formatter.LPTJson as LPTJson
 import Compiler.Outline as Outline exposing (Outline)
 import RemoveUnusedImports as RUI
