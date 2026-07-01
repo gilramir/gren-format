@@ -7,7 +7,7 @@
     "gren-version": "0.6.6",
     "dependencies": {
         "direct": {
-            "gilramir/gren-argparse": "1.0.0",
+            "gilramir/gren-argparse": "1.0.1",
             "gilramir/gren-diff": "1.0.2",
             "gilramir/gren-format-lib": "local:../gren-format-lib",
             "gren-lang/compiler-common": "3.0.0",
