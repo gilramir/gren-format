@@ -93,7 +93,7 @@ prettifyProjectOutlineError error =
                     , PP.empty
                     , PP.words "The error I'm having is:"
                     , PP.empty
-                    , PP.text (Decode.errorToString jsonErr)
+                    , PP.verticalBlock (Array.map PP.text (String.split "\n" (Decode.errorToString jsonErr)))
                         |> PP.indent
                     ]
                 )

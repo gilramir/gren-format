@@ -498,7 +498,8 @@ prettifyError error =
             Report.create
                 ("Could not format this file. Please report this 'gren format' bug.")
                 (Just path)
-                (PP.words message)
+                ( PP.verticalBlock (Array.map PP.text (String.split "\n" message))
+                )
 
         OverwriteFailure { path, error = message } ->
             Report.create
@@ -524,7 +525,7 @@ prettifyError error =
                 ( PP.verticalBlock
                     [ PP.words "Formatting the file twice produced different output. This is a bug in 'gren format'."
                     , PP.empty
-                    , PP.text diff
+                    , PP.verticalBlock (Array.map PP.text (String.split "\n" diff))
                     ]
                 )
 
