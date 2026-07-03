@@ -22,9 +22,9 @@ import FileSystem
 import FileSystem.Path as Path exposing (Path)
 import Compiler.Ast.Compare as AstCompare
 import UnifiedDiff exposing (unifiedDiffStrings)
-import Formatter.MakeLogical exposing (makeLogicalPrintingTree)
-import Formatter.MakeRender exposing (makePrettyResult, lptToRenderDocJson)
-import Formatter.LPTJson as LPTJson
+import Formatter.Logical.MakeLogical exposing (makeLogicalPrintingTree)
+import Formatter.Render.MakeRender exposing (makePrettyResult, lptToRenderDocJson)
+import Formatter.Logical.LPTJson as LPTJson
 import Compiler.Outline as Outline exposing (Outline)
 import RemoveUnusedImports as RUI
 import Cli.Report as Report exposing (Report)
