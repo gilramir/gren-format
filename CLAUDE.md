@@ -6,22 +6,27 @@ The formatter logic itself lives entirely in `../gren-format-lib/src/Formatter/`
 
 ## Build
 
+No top-level `gren.sh` wrapper anymore — build via **devbox** (`devbox.json`
+pins a `gren@0.6` package resolving to a version-compatible published Gren
+compiler):
+
 ```bash
 # From this directory (gren-format/)
-../gren.sh make Main --output=app
+./build.sh          # wraps `devbox run build` (== `gren make Main`)
 ```
 
-The built binary is `gren-format/app` (a Node.js script). Run it as:
+The built binary is `gren-format/app` (a Node.js script, executable directly
+via its shebang — no wrapper/env var needed). Run it as:
 
 ```bash
 node app --show MyFile.gren
 node app --dangerous
 ```
 
-Or via the parent helper which sets `GREN_BIN`:
+Or directly, since it's executable:
 
 ```bash
-# From the workspace root (gren-format/)
+# From the workspace root
 ./gren-format/app --show MyFile.gren
 ```
 
