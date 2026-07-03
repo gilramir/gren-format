@@ -5,6 +5,8 @@ import Array.Builder as Builder
 import Compiler.Ast.Source as Src
 import Compiler.Parse.Context as Ctx
 import Compiler.SourcePosition exposing (Located)
+import ShiftPositions
+import String
 
 
 -- ENTRY POINT
@@ -18,7 +20,20 @@ kept conservatively: if any exposed name appears anywhere in the code
 (even shadowed), the import is kept.
 
 Comments whose start row falls within a removed import's row range are
-also removed. Comments outside that range are preserved unchanged.
+also removed — a comment trailing the import on its own line, or nested
+inside its exposing list. A comment on its own line *directly above* the
+import (no blank line) is different: rather than orphan it, the import is
+replaced with a single placeholder comment (`-- removed import Foo`, or
+`-- removed import Foo as F` when aliased) on the row it used to start at,
+and the leading comment is left exactly where it is. Deleting the import
+outright there would otherwise leave that comment sitting directly above
+whichever import ends up in its place once the row-gap below closes,
+silently reattaching it to something the author never wrote it about.
+
+Removing rows also means everything after them needs renumbering — nothing
+downstream (`Formatter.Logical.Comments`, `Formatter.Logical.SortSymbols`)
+tolerates a stale, pre-edit row gap; see `ShiftPositions` for that half of
+the work.
 -}
 removeUnusedImports : Src.Module -> Ctx.Context -> { module_ : Src.Module, context : Ctx.Context }
 removeUnusedImports modAst ctx =
@@ -26,25 +41,270 @@ removeUnusedImports modAst ctx =
         refs =
             refsFromModule modAst
 
-        partition =
-            Array.foldl
-                (\locImport acc ->
-                    if importIsUsed refs locImport.value then
-                        { acc | kept = Array.pushLast locImport acc.kept }
-                    else
-                        { acc | removed = Array.pushLast locImport acc.removed }
-                )
-                { kept = [], removed = [] }
-                modAst.imports
-
-        filteredComments =
+        comments =
             Builder.toArray ctx.comments
-                |> Array.keepIf (\c -> not (commentIsInsideAny partition.removed c))
-                |> Builder.fromArray
+
+        scan =
+            classifyImports refs comments modAst.imports
+
+        deltaAt =
+            deltaAtRow scan.cuts
+
+        newImports =
+            Array.map (\locImport -> ShiftPositions.shiftImport (deltaAt locImport.start.row) locImport) scan.keptImports
+
+        survivingComments =
+            comments
+                |> Array.keepIf (\c -> not (commentIsInsideAny scan.removedImports c))
+                |> Array.map (\c -> ShiftPositions.shiftLocated (deltaAt c.start.row) c)
+
+        -- Each placeholder is built at its import's ORIGINAL (unshifted)
+        -- start row (see `placeholderComment`), so it still needs the same
+        -- per-row shift as any other surviving comment -- using its own
+        -- original row is correct even though that row is also this
+        -- placeholder's own cutoff: `deltaAtRow` excludes a cut at its own
+        -- cutoffRow (strict `<`), so this never double-shifts the
+        -- placeholder by its own freed rows, only by earlier ones.
+        shiftedPlaceholders =
+            scan.placeholders
+                |> Array.map (\c -> ShiftPositions.shiftLocated (deltaAt c.start.row) c)
+
+        newComments =
+            (survivingComments ++ shiftedPlaceholders)
+                |> Array.sortWith compareCommentPosition
+
+        totalDelta =
+            -(Array.foldl (\cut acc -> acc + cut.freedRows) 0 scan.cuts)
+
+        shifted =
+            ShiftPositions.shiftDeclarations totalDelta modAst
     in
-    { module_ = { modAst | imports = partition.kept }
-    , context = { ctx | comments = filteredComments }
+    { module_ =
+        { modAst
+            | imports = newImports
+            , values = shifted.values
+            , unions = shifted.unions
+            , aliases = shifted.aliases
+            , effects = shifted.effects
+            , binops = shifted.binops
+        }
+    , context = { ctx | comments = Builder.fromArray newComments }
     }
+
+
+compareCommentPosition : Located Ctx.Comment -> Located Ctx.Comment -> Order
+compareCommentPosition a b =
+    when compare a.start.row b.start.row is
+        EQ ->
+            compare a.start.col b.start.col
+
+        other ->
+            other
+
+
+-- IMPORT CLASSIFICATION
+--
+-- Decide, for each import in source order, whether it's kept, removed
+-- outright, or replaced with a placeholder comment -- and compute the row
+-- deltas that decision implies for everything after it.
+
+
+{-| One row-range that collapsed: `cutoffRow` is the removed import's own
+original last row: any position whose original row is greater is shifted by
+`freedRows` (in addition to any earlier cuts). `freedRows` is the import's
+own height for a plain removal, or that height minus one when a placeholder
+comment survives in its place (the placeholder still occupies its first
+row). -}
+type alias Cut =
+    { cutoffRow : Int
+    , freedRows : Int
+    }
+
+
+deltaAtRow : Array Cut -> Int -> Int
+deltaAtRow cuts row =
+    -(Array.foldl
+        (\cut acc ->
+            if cut.cutoffRow < row then
+                acc + cut.freedRows
+
+            else
+                acc
+        )
+        0
+        cuts
+    )
+
+
+type alias ScanState =
+    { hasPendingLeading : Bool
+    , lastRow : Int
+    , justSawImportEndingAt : Maybe Int
+    , keptImports : Array (Located Src.Import)
+    , removedImports : Array (Located Src.Import)
+    , cuts : Array Cut
+    , placeholders : Array (Located Ctx.Comment)
+    }
+
+
+type RegionItem
+    = ImportItem (Located Src.Import)
+    | CommentItem (Located Ctx.Comment)
+
+
+{-| Walk every import, in source order, merged with the comments that sit at
+or before the last import's row (comments after that belong to whatever
+declaration follows the imports, never to an import) -- see
+`RegionItem`/`mergedRegion`. Comments and imports both carry a real,
+original row/col, so a single row-ordered walk correctly interleaves them
+regardless of how `Array.Builder` happened to accumulate `ctx.comments`. -}
+classifyImports : Refs -> Array (Located Ctx.Comment) -> Array (Located Src.Import) -> ScanState
+classifyImports refs comments imports =
+    Array.foldl (classifyStep refs) initScanState (mergedRegion imports comments)
+
+
+initScanState : ScanState
+initScanState =
+    { hasPendingLeading = False
+    , lastRow = 0
+    , justSawImportEndingAt = Nothing
+    , keptImports = []
+    , removedImports = []
+    , cuts = []
+    , placeholders = []
+    }
+
+
+mergedRegion : Array (Located Src.Import) -> Array (Located Ctx.Comment) -> Array RegionItem
+mergedRegion imports comments =
+    let
+        inScope =
+            when Array.last imports is
+                Just lastImport ->
+                    Array.keepIf (\c -> c.start.row <= lastImport.end.row) comments
+
+                Nothing ->
+                    []
+    in
+    (Array.map ImportItem imports ++ Array.map CommentItem inScope)
+        |> Array.sortWith compareRegionItem
+
+
+{-| Row order, with an import sorting before a same-row comment (its own
+trailing comment) -- the only way two items ever share a row. -}
+compareRegionItem : RegionItem -> RegionItem -> Order
+compareRegionItem a b =
+    when compare (regionItemRow a) (regionItemRow b) is
+        EQ ->
+            compare (regionItemRank a) (regionItemRank b)
+
+        other ->
+            other
+
+
+regionItemRow : RegionItem -> Int
+regionItemRow item =
+    when item is
+        ImportItem locImport ->
+            locImport.start.row
+
+        CommentItem locComment ->
+            locComment.start.row
+
+
+regionItemRank : RegionItem -> Int
+regionItemRank item =
+    when item is
+        ImportItem _ ->
+            0
+
+        CommentItem _ ->
+            1
+
+
+classifyStep : Refs -> RegionItem -> ScanState -> ScanState
+classifyStep refs item state =
+    when item is
+        CommentItem c ->
+            if not state.hasPendingLeading && state.justSawImportEndingAt == Just c.start.row then
+                -- Trailing comment of the import just processed -- not a
+                -- leading-comment candidate for whatever import comes next.
+                -- Already accounted for by `commentIsInsideAny` if that
+                -- import turns out to be removed.
+                { state | justSawImportEndingAt = Nothing, lastRow = c.end.row }
+
+            else if state.hasPendingLeading && state.lastRow + 1 == c.start.row then
+                -- Contiguous continuation of the run building up.
+                { state | lastRow = c.end.row, justSawImportEndingAt = Nothing }
+
+            else
+                -- Either nothing was pending, or a gap broke the previous
+                -- run -- start a fresh one. (A stale, non-contiguous
+                -- `pendingLeading` is not tracked by value here; if it's
+                -- never claimed by an import it survives as an ordinary
+                -- comment via the ordinary `commentIsInsideAny` filter in
+                -- `removeUnusedImports`, unaffected either way.)
+                { state | hasPendingLeading = True, lastRow = c.end.row, justSawImportEndingAt = Nothing }
+
+        ImportItem locImport ->
+            let
+                hasLeadingRun =
+                    state.hasPendingLeading && state.lastRow + 1 == locImport.start.row
+
+                used =
+                    importIsUsed refs locImport.value
+
+                height =
+                    locImport.end.row - locImport.start.row + 1
+
+                withReset extra =
+                    { extra
+                        | hasPendingLeading = False
+                        , lastRow = locImport.end.row
+                        , justSawImportEndingAt = Just locImport.end.row
+                    }
+            in
+            if used then
+                withReset { state | keptImports = Array.pushLast locImport state.keptImports }
+
+            else if not hasLeadingRun then
+                withReset
+                    { state
+                        | removedImports = Array.pushLast locImport state.removedImports
+                        , cuts = Array.pushLast { cutoffRow = locImport.end.row, freedRows = height } state.cuts
+                    }
+
+            else
+                withReset
+                    { state
+                        | removedImports = Array.pushLast locImport state.removedImports
+                        , cuts = Array.pushLast { cutoffRow = locImport.end.row, freedRows = height - 1 } state.cuts
+                        , placeholders = Array.pushLast (placeholderComment locImport) state.placeholders
+                    }
+
+
+{-| `-- removed import Foo`, or `-- removed import Foo as F` when the import
+had an alias -- never the exposing list. Positioned at the import's own
+original `start` (before any delta is applied -- the caller shifts it like
+any other surviving comment, keyed by this row). -}
+placeholderComment : Located Src.Import -> Located Ctx.Comment
+placeholderComment locImport =
+    let
+        aliasSuffix =
+            when locImport.value.alias is
+                Just alias_ ->
+                    " as " ++ alias_
+
+                Nothing ->
+                    ""
+
+        text =
+            " removed import " ++ locImport.value.module_.value ++ aliasSuffix
+
+        endPos =
+            { row = locImport.start.row, col = locImport.start.col + 2 + String.count text }
+    in
+    { start = locImport.start, end = endPos, value = Ctx.Line text }
 
 
 -- COMMENT FILTERING

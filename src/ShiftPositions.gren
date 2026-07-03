@@ -1,0 +1,449 @@
+module ShiftPositions exposing
+    ( shiftPosition
+    , shiftLocated
+    , shiftRegion
+    , shiftImport
+    , shiftDeclarations
+    )
+
+{-| Add a constant row delta to every source position in a parsed module's
+declarations -- used by `RemoveUnusedImports` to close the row-gap left
+behind when it deletes (or replaces) an `import` line, so nothing after the
+cut keeps a stale, pre-edit row number.
+
+No other code in this codebase does this today (deleting a line and
+renumbering everything after it) -- it's a full, from-scratch traversal
+over every constructor in `Compiler.Ast.Source`. `RemoveUnusedImports`'s own
+`refsFrom*` family (same repo) is the structural template this follows: one
+function per AST type, an exhaustive match over every constructor.
+
+@docs shiftPosition, shiftLocated, shiftRegion, shiftImport, shiftDeclarations
+-}
+
+import Compiler.Ast.Source as Src
+import Compiler.SourcePosition as SP
+
+
+{-| -}
+shiftPosition : Int -> SP.Position -> SP.Position
+shiftPosition delta pos =
+    { pos | row = pos.row + delta }
+
+
+{-| Shifts a `Located` value's `start`/`end` only -- never touches `.value`.
+Correct on its own for any `Located` whose payload carries no further
+position (a bare `String`, `Comment`, ...); anything with a recursive
+payload needs its own `shiftX` that also rewrites `.value`. -}
+shiftLocated : Int -> SP.Located a -> SP.Located a
+shiftLocated delta loc =
+    { loc
+        | start = shiftPosition delta loc.start
+        , end = shiftPosition delta loc.end
+    }
+
+
+{-| -}
+shiftRegion : Int -> SP.Region -> SP.Region
+shiftRegion delta reg =
+    { start = shiftPosition delta reg.start
+    , end = shiftPosition delta reg.end
+    }
+
+
+
+-- IMPORTS
+
+
+{-| -}
+shiftImport : Int -> SP.Located Src.Import -> SP.Located Src.Import
+shiftImport delta locImport =
+    { locImport
+        | start = shiftPosition delta locImport.start
+        , end = shiftPosition delta locImport.end
+        , value = shiftImportValue delta locImport.value
+    }
+
+
+shiftImportValue : Int -> Src.Import -> Src.Import
+shiftImportValue delta import_ =
+    { import_
+        | module_ = shiftLocated delta import_.module_
+        , expose = shiftExposing delta import_.expose
+    }
+
+
+shiftExposing : Int -> Src.Exposing -> Src.Exposing
+shiftExposing delta exposing_ =
+    when exposing_ is
+        Src.Open ->
+            Src.Open
+
+        Src.Explicit exposedArr ->
+            Src.Explicit (Array.map (shiftExposed delta) exposedArr)
+
+
+shiftExposed : Int -> Src.Exposed -> Src.Exposed
+shiftExposed delta exposed =
+    when exposed is
+        Src.ExposedLower locName ->
+            Src.ExposedLower (shiftLocated delta locName)
+
+        Src.ExposedUpper r ->
+            Src.ExposedUpper { r | name = shiftLocated delta r.name }
+
+        Src.ExposedOperator locOp ->
+            Src.ExposedOperator (shiftLocated delta locOp)
+
+
+
+-- DECLARATIONS
+
+
+{-| Shift every position in a module's declarations -- `values`, `unions`,
+`aliases`, `Ports`-kind `effects`, and `binops` -- by `delta`, unconditionally
+(no per-node cutoff check). Valid because Gren's grammar guarantees every one
+of these comes after *every* `import`, so by the time `RemoveUnusedImports`
+calls this, there is exactly one relevant delta: the total rows freed across
+the whole import block.
+
+Deliberately does **not** touch `.name`, `.exports`, `.docs`, or `.imports`
+-- the caller owns `imports` (each surviving import needs its own,
+individually-computed delta, not this one uniform value) and the rest are
+always before the import block, so they're never shifted at all.
+
+Also deliberately does **not** shift a `Manager`-kind `effects` (an
+`effect module Foo where { command = ..., subscription = ... }` clause) --
+unlike `Ports`, `Manager`'s positions are parsed as part of the module
+header line itself, strictly *before* `exports`/`docs`/`imports` are even
+parsed (see `compiler-common/src/Compiler/Parse/Module.gren`, where `effects`
+is bound in the same `Parser.succeed` as the module `name`). Applying the
+import-block delta to it would corrupt those positions for every effect
+module -- caught by an adversarial design review before this was ever
+implemented, not by any automated check (`Compiler.Ast.Compare` ignores
+positions, so a wrong shift here wouldn't fail AST-equivalence). -}
+shiftDeclarations :
+    Int
+    -> Src.Module
+    -> { values : Array (Src.ModuleDeclaration Src.Value)
+       , unions : Array (Src.ModuleDeclaration Src.Union)
+       , aliases : Array (Src.ModuleDeclaration Src.Alias)
+       , effects : Src.Effects
+       , binops : Array (SP.Located Src.Infix)
+       }
+shiftDeclarations delta modAst =
+    { values = Array.map (shiftModuleDeclaration delta shiftValue) modAst.values
+    , unions = Array.map (shiftModuleDeclaration delta shiftUnion) modAst.unions
+    , aliases = Array.map (shiftModuleDeclaration delta shiftAlias) modAst.aliases
+    , effects = shiftEffects delta modAst.effects
+    , binops = Array.map (shiftLocated delta) modAst.binops
+    }
+
+
+shiftModuleDeclaration : Int -> (Int -> v -> v) -> Src.ModuleDeclaration v -> Src.ModuleDeclaration v
+shiftModuleDeclaration delta shiftValue_ modDecl =
+    { modDecl
+        | start = shiftPosition delta modDecl.start
+        , end = shiftPosition delta modDecl.end
+        , value =
+            { docs = Maybe.map (shiftLocated delta) modDecl.value.docs
+            , value = shiftValue_ delta modDecl.value.value
+            }
+    }
+
+
+shiftValue : Int -> Src.Value -> Src.Value
+shiftValue delta value =
+    { value
+        | name = shiftLocated delta value.name
+        , signature = Maybe.map (shiftSignature delta) value.signature
+        , args = Array.map (shiftPattern delta) value.args
+        , body = shiftExpression delta value.body
+    }
+
+
+shiftSignature :
+    Int
+    -> { start : SP.Position, type_ : Src.Type }
+    -> { start : SP.Position, type_ : Src.Type }
+shiftSignature delta sig =
+    { start = shiftPosition delta sig.start
+    , type_ = shiftType delta sig.type_
+    }
+
+
+shiftUnion : Int -> Src.Union -> Src.Union
+shiftUnion delta union =
+    { union
+        | name = shiftLocated delta union.name
+        , vars = Array.map (shiftLocated delta) union.vars
+        , variants = Array.map (shiftUnionVariantLoc delta) union.variants
+    }
+
+
+shiftUnionVariantLoc : Int -> SP.Located Src.UnionVariant -> SP.Located Src.UnionVariant
+shiftUnionVariantLoc delta locVariant =
+    { locVariant
+        | start = shiftPosition delta locVariant.start
+        , end = shiftPosition delta locVariant.end
+        , value = shiftUnionVariant delta locVariant.value
+    }
+
+
+shiftUnionVariant : Int -> Src.UnionVariant -> Src.UnionVariant
+shiftUnionVariant delta variant =
+    { variant
+        | name = shiftLocated delta variant.name
+        , payload = Maybe.map (shiftType delta) variant.payload
+    }
+
+
+shiftAlias : Int -> Src.Alias -> Src.Alias
+shiftAlias delta alias_ =
+    { alias_
+        | name = shiftLocated delta alias_.name
+        , vars = Array.map (shiftLocated delta) alias_.vars
+        , type_ = shiftType delta alias_.type_
+    }
+
+
+shiftPort : Int -> Src.Port -> Src.Port
+shiftPort delta port_ =
+    { port_
+        | name = shiftLocated delta port_.name
+        , signature = shiftType delta port_.signature
+    }
+
+
+shiftEffects : Int -> Src.Effects -> Src.Effects
+shiftEffects delta effects =
+    when effects is
+        Src.NoEffects ->
+            Src.NoEffects
+
+        Src.Ports ports ->
+            Src.Ports (Array.map (shiftModuleDeclaration delta shiftPort) ports)
+
+        Src.Manager manager ->
+            -- Never shifted -- see shiftDeclarations's doc comment for why.
+            Src.Manager manager
+
+
+
+-- TYPES
+
+
+shiftType : Int -> Src.Type -> Src.Type
+shiftType delta locType =
+    { locType
+        | start = shiftPosition delta locType.start
+        , end = shiftPosition delta locType.end
+        , value = shiftType_ delta locType.value
+    }
+
+
+shiftType_ : Int -> Src.Type_ -> Src.Type_
+shiftType_ delta type_ =
+    when type_ is
+        Src.TLambda r ->
+            Src.TLambda { from = shiftType delta r.from, to = shiftType delta r.to }
+
+        Src.TVar _ ->
+            type_
+
+        Src.TType r ->
+            Src.TType { r | name = shiftLocated delta r.name, args = Array.map (shiftType delta) r.args }
+
+        Src.TTypeQual r ->
+            Src.TTypeQual { r | varRegion = shiftRegion delta r.varRegion, args = Array.map (shiftType delta) r.args }
+
+        Src.TRecord r ->
+            Src.TRecord
+                { fields = Array.map (shiftTRecordField delta) r.fields
+                , extending = Maybe.map (shiftLocated delta) r.extending
+                }
+
+        Src.TParens t ->
+            Src.TParens (shiftType delta t)
+
+
+shiftTRecordField : Int -> Src.TRecordField -> Src.TRecordField
+shiftTRecordField delta trField =
+    { trField
+        | field = shiftLocated delta trField.field
+        , signature = shiftType delta trField.signature
+    }
+
+
+
+-- PATTERNS
+
+
+shiftPattern : Int -> Src.Pattern -> Src.Pattern
+shiftPattern delta locPat =
+    { locPat
+        | start = shiftPosition delta locPat.start
+        , end = shiftPosition delta locPat.end
+        , value = shiftPattern_ delta locPat.value
+    }
+
+
+shiftPattern_ : Int -> Src.Pattern_ -> Src.Pattern_
+shiftPattern_ delta pat =
+    when pat is
+        Src.PAnything _ ->
+            pat
+
+        Src.PVar _ ->
+            pat
+
+        Src.PRecord fields ->
+            Src.PRecord (Array.map (shiftPRecordField delta) fields)
+
+        Src.PAlias r ->
+            Src.PAlias { pattern = shiftPattern delta r.pattern, name = shiftLocated delta r.name }
+
+        Src.PCtor r ->
+            Src.PCtor { name = shiftLocated delta r.name, arg = Maybe.map (shiftPattern delta) r.arg }
+
+        Src.PCtorQual r ->
+            Src.PCtorQual { r | varRegion = shiftRegion delta r.varRegion, arg = Maybe.map (shiftPattern delta) r.arg }
+
+        Src.PArray pats ->
+            Src.PArray (Array.map (shiftPattern delta) pats)
+
+        Src.PChr _ ->
+            pat
+
+        Src.PStr _ ->
+            pat
+
+        Src.PInt _ ->
+            pat
+
+
+shiftPRecordField : Int -> Src.PRecordField -> Src.PRecordField
+shiftPRecordField delta f =
+    { f
+        | field = shiftLocated delta f.field
+        , pattern = Maybe.map (shiftPattern delta) f.pattern
+    }
+
+
+
+-- EXPRESSIONS
+
+
+shiftExpression : Int -> Src.Expression -> Src.Expression
+shiftExpression delta locExpr =
+    { locExpr
+        | start = shiftPosition delta locExpr.start
+        , end = shiftPosition delta locExpr.end
+        , value = shiftExpression_ delta locExpr.value
+    }
+
+
+shiftExpression_ : Int -> Src.Expression_ -> Src.Expression_
+shiftExpression_ delta expr =
+    when expr is
+        Src.CharLiteral _ ->
+            expr
+
+        Src.StringLiteral _ ->
+            expr
+
+        Src.NumberLiteral _ ->
+            expr
+
+        Src.Var _ ->
+            expr
+
+        Src.VarQual _ ->
+            expr
+
+        Src.ArrayLiteral exprs ->
+            Src.ArrayLiteral (Array.map (shiftExpression delta) exprs)
+
+        Src.Record fields ->
+            Src.Record (Array.map (shiftRecordField delta) fields)
+
+        Src.Update r ->
+            Src.Update
+                { record = shiftExpression delta r.record
+                , newValues = Array.map (shiftRecordField delta) r.newValues
+                }
+
+        Src.Operator _ ->
+            expr
+
+        Src.Negate e ->
+            Src.Negate (shiftExpression delta e)
+
+        Src.Binops r ->
+            Src.Binops
+                { left = shiftExpression delta r.left
+                , operator = shiftLocated delta r.operator
+                , right = shiftExpression delta r.right
+                }
+
+        Src.Lambda r ->
+            Src.Lambda { patterns = Array.map (shiftPattern delta) r.patterns, body = shiftExpression delta r.body }
+
+        Src.Call r ->
+            Src.Call { fn = shiftExpression delta r.fn, args = Array.map (shiftExpression delta) r.args }
+
+        Src.Let r ->
+            Src.Let { defs = Array.map (shiftDefLoc delta) r.defs, body = shiftExpression delta r.body }
+
+        Src.If r ->
+            Src.If { branches = Array.map (shiftIfBranch delta) r.branches, elseBranch = shiftExpression delta r.elseBranch }
+
+        Src.When r ->
+            Src.When { expression = shiftExpression delta r.expression, branches = Array.map (shiftWhenBranch delta) r.branches }
+
+        Src.Accessor _ ->
+            expr
+
+        Src.Access r ->
+            Src.Access { r | expression = shiftExpression delta r.expression }
+
+        Src.Parens e ->
+            Src.Parens (shiftExpression delta e)
+
+
+shiftRecordField : Int -> Src.RecordField -> Src.RecordField
+shiftRecordField delta f =
+    { f | field = shiftLocated delta f.field, value = shiftExpression delta f.value }
+
+
+shiftIfBranch : Int -> Src.IfBranch -> Src.IfBranch
+shiftIfBranch delta b =
+    { test = shiftExpression delta b.test, body = shiftExpression delta b.body }
+
+
+shiftWhenBranch : Int -> Src.WhenBranch -> Src.WhenBranch
+shiftWhenBranch delta b =
+    { pattern = shiftPattern delta b.pattern, body = shiftExpression delta b.body }
+
+
+shiftDefLoc : Int -> SP.Located Src.Def -> SP.Located Src.Def
+shiftDefLoc delta locDef =
+    { locDef
+        | start = shiftPosition delta locDef.start
+        , end = shiftPosition delta locDef.end
+        , value = shiftDef delta locDef.value
+    }
+
+
+shiftDef : Int -> Src.Def -> Src.Def
+shiftDef delta def =
+    when def is
+        Src.Define dr ->
+            Src.Define
+                { name = shiftLocated delta dr.name
+                , args = Array.map (shiftPattern delta) dr.args
+                , body = shiftExpression delta dr.body
+                , typeSignature = Maybe.map (shiftType delta) dr.typeSignature
+                }
+
+        Src.Destruct r ->
+            Src.Destruct { pattern = shiftPattern delta r.pattern, body = shiftExpression delta r.body }
