@@ -1,0 +1,18 @@
+module NestedContent exposing (compute)
+
+import Unused
+import Dict
+
+
+compute : Dict.Dict String Int -> Int
+compute d =
+    when Dict.get "x" d is
+        Just n ->
+            let
+                double =
+                    \x -> x * 2
+            in
+            double n
+
+        Nothing ->
+            0

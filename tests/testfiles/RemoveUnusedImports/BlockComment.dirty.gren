@@ -1,0 +1,10 @@
+module BlockComment exposing (x)
+
+{- describes Unused -}
+import Unused
+import Kept
+
+
+x : Kept.Thing -> Int
+x _ =
+    1

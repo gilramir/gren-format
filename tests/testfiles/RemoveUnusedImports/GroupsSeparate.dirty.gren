@@ -1,0 +1,11 @@
+module GroupsSeparate exposing (x)
+
+import Zebra
+-- describes Unused
+import Unused
+import Apple
+
+
+x : Zebra.Thing -> Apple.Thing -> Int
+x _ _ =
+    1

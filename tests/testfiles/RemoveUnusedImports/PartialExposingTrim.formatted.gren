@@ -1,0 +1,8 @@
+module PartialExposingTrim exposing (x)
+
+import Dict exposing (get)
+
+
+x : Dict.Dict String Int -> Maybe Int
+x d =
+    get "a" d

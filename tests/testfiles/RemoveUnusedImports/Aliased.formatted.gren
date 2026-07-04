@@ -1,0 +1,10 @@
+module Aliased exposing (x)
+
+-- describes Unused
+-- removed import Unused as U
+import Kept
+
+
+x : Kept.Thing -> Int
+x _ =
+    1

@@ -17,7 +17,15 @@ import String
 Open-expose imports (exposing (..)) are always kept — we can't analyze them
 without knowing the imported module's exports.  Explicit-expose imports are
 kept conservatively: if any exposed name appears anywhere in the code
-(even shadowed), the import is kept.
+(even shadowed), the import is kept. The same conservatism applies to any
+individual `Type(..)` in an explicit list: it also exposes the type's
+constructors, and a bare constructor name elsewhere in the file can't be
+attributed to this import versus some other module's same-named constructor,
+so it's always kept.
+
+A kept import's exposing list is still trimmed name-by-name: any exposed
+name that fails that same "used anywhere" check is dropped from the list
+even though the import itself survives (see `trimExposing`).
 
 Comments whose start row falls within a removed import's row range are
 also removed — a comment trailing the import on its own line, or nested
@@ -265,7 +273,7 @@ classifyStep refs item state =
                     }
             in
             if used then
-                withReset { state | keptImports = Array.pushLast locImport state.keptImports }
+                withReset { state | keptImports = Array.pushLast (trimExposing refs locImport) state.keptImports }
 
             else if not hasLeadingRun then
                 withReset
@@ -320,6 +328,36 @@ commentIsInsideAny removedImports locComment =
         removedImports
 
 
+-- EXPOSING LIST TRIMMING
+--
+-- A kept import can still carry exposed names nothing in the file uses --
+-- e.g. `import Dict exposing (get, insert)` when only `get` appears. Trim
+-- those out too, the same conservative name-by-name rule `exposedIsUsed`
+-- already applies at the whole-import level. If every entry gets trimmed,
+-- `Array.keepIf` yields an empty array and the pretty printer already
+-- renders an import with no exposed names as a bare `import Foo` (no
+-- `exposing` clause at all).
+--
+-- A comment that was attached inside the exposing list to one of the
+-- trimmed-away names is not removed -- unlike whole-import removal, kept
+-- imports don't filter `ctx.comments` at all, so that comment survives and
+-- reattaches to whatever ends up nearest it after the sort/shift passes.
+
+
+trimExposing : Refs -> Located Src.Import -> Located Src.Import
+trimExposing refs locImport =
+    let
+        import_ =
+            locImport.value
+    in
+    when import_.expose is
+        Src.Open ->
+            locImport
+
+        Src.Explicit exposed ->
+            { locImport | value = { import_ | expose = Src.Explicit (Array.keepIf (exposedIsUsed refs) exposed) } }
+
+
 -- IMPORT USAGE CHECK
 
 
@@ -346,8 +384,18 @@ exposedIsUsed refs exposed =
         Src.ExposedLower locName ->
             Array.member locName.value refs.names
 
-        Src.ExposedUpper { name } ->
-            Array.member name.value refs.names
+        Src.ExposedUpper { name, privacy } ->
+            when privacy is
+                -- `Type(..)` also exposes the type's constructors, so an
+                -- unqualified name used anywhere in the file could be one of
+                -- them -- we have no way to resolve which module a bare
+                -- constructor name came from, so treat the import as used
+                -- unconditionally rather than risk removing it.
+                Src.Public ->
+                    True
+
+                Src.Private ->
+                    Array.member name.value refs.names
 
         Src.ExposedOperator locOp ->
             Array.member locOp.value refs.operators

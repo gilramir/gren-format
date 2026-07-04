@@ -1,0 +1,10 @@
+module PlainRemoval exposing (someFunc)
+
+import Zebra
+import Unused
+import Apple
+
+
+someFunc : Zebra.Thing -> Apple.Thing
+someFunc x =
+    x

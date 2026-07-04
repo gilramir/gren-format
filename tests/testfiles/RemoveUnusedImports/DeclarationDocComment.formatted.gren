@@ -1,0 +1,8 @@
+module DeclarationDocComment exposing (Config)
+
+import Dict
+
+
+{-| Config doc comment. -}
+type alias Config =
+    Dict.Dict String Int
