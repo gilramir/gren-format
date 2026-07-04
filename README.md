@@ -2,7 +2,8 @@
 
 `gren-format` is a code formatter for the [Gren](https://gren-lang.org)
 programming language. It rewrites Gren source files into one canonical style, so
-code looks the same no matter who wrote it and diffs stay focused on real
+code looks the same no matter who wrote it, except that the formatter also
+honors the author's choice of line breaks. The formtting helps diffs stay focused on real
 changes. Run it with no arguments to reformat every source file in your project
 in place, or point it at individual files.
 
@@ -10,8 +11,8 @@ Formatting is **safe by construction**: before writing anything to disk, the too
 reparses its own output and verifies that the abstract syntax tree is unchanged
 (so a reformat never alters what your program *means*) and that formatting is
 idempotent (so an already-formatted file is left byte-for-byte untouched). If
-either check ever fails, it reports a bug instead of writing. See
-[Formatting pipeline](#formatting-pipeline) below for the full sequence.
+either check ever fails, it reports a bug to the user instead of overwriting the file.
+See [Formatting pipeline](#formatting-pipeline) below for the full sequence.
 
 ## Usage
 
@@ -212,6 +213,14 @@ comment on its own line directly above a removed import is left in place
 and the import is replaced by a `-- removed import Foo` placeholder, so
 the comment is never silently reattached to whatever moves up into the
 gap.
+
+Assuming `Array` goes unused in each example below:
+
+| Before | After |
+|---|---|
+| `import Dict`<br>`import Array -- unused, but noted here` | `import Dict` |
+| `import Dict`<br>`-- Array is used for buffering`<br>`import Array` | `import Dict`<br>`-- Array is used for buffering`<br>`-- removed import Array` |
+| `-- Module imports below`<br>`import Dict`<br>`import Array` | `-- Module imports below`<br>`import Dict` |
 
 ## Debug flags
 
