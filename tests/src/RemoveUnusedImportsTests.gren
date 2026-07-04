@@ -1,0 +1,82 @@
+module RemoveUnusedImportsTests exposing (removeUnusedImportsFlagSuite)
+
+{-| CLI integration tests for `--remove-unused-imports`.
+
+`--remove-unused-imports` deletes an unused `import` and renumbers every row
+after it so nothing downstream keeps a stale gap. An import with a comment
+directly (no blank line) above it is a special case: rather than orphan
+that comment, the import becomes a single `-- removed import Foo`
+placeholder instead of disappearing outright.
+
+@docs removeUnusedImportsFlagSuite
+-}
+
+import Expect
+import FileSystem.Path as Path
+import Task
+import Test.Runner.UnitNode as U
+import Support exposing (Perms, Scratch)
+
+
+{-| -}
+removeUnusedImportsFlagSuite : Perms -> U.Suite
+removeUnusedImportsFlagSuite perms =
+    U.suite
+        { name = "RemoveUnusedImportsFlag"
+        , setUpSuite = Support.locateApp perms
+        , tearDownSuite = U.noTearDown
+        , setUp = Support.makeScratch perms
+        , tearDown = Support.removeScratch perms
+        , tests =
+            [ U.test "plain removal closes the gap so the surrounding imports sort together" <| \s ->
+                expectRemoveUnusedImports perms s
+                    "module PlainRemoval exposing (someFunc)\n\nimport Zebra\nimport Unused\nimport Apple\n\n\nsomeFunc : Zebra.Thing -> Apple.Thing\nsomeFunc x =\n    x\n"
+                    "module PlainRemoval exposing (someFunc)\n\nimport Apple\nimport Zebra\n\n\nsomeFunc : Zebra.Thing -> Apple.Thing\nsomeFunc x =\n    x\n"
+            , U.test "a leading line comment survives as a placeholder instead of being orphaned" <| \s ->
+                expectRemoveUnusedImports perms s
+                    "module LineComment exposing (x)\n\n-- describes Unused\nimport Unused\nimport Kept\n\n\nx : Kept.Thing -> Int\nx _ =\n    1\n"
+                    "module LineComment exposing (x)\n\n-- describes Unused\n-- removed import Unused\nimport Kept\n\n\nx : Kept.Thing -> Int\nx _ =\n    1\n"
+            , U.test "a leading block comment gets the same placeholder treatment as a line comment" <| \s ->
+                expectRemoveUnusedImports perms s
+                    "module BlockComment exposing (x)\n\n{- describes Unused -}\nimport Unused\nimport Kept\n\n\nx : Kept.Thing -> Int\nx _ =\n    1\n"
+                    "module BlockComment exposing (x)\n\n{- describes Unused -}\n-- removed import Unused\nimport Kept\n\n\nx : Kept.Thing -> Int\nx _ =\n    1\n"
+            , U.test "the placeholder for an aliased import includes the alias" <| \s ->
+                expectRemoveUnusedImports perms s
+                    "module Aliased exposing (x)\n\n-- describes Unused\nimport Unused as U\nimport Kept\n\n\nx : Kept.Thing -> Int\nx _ =\n    1\n"
+                    "module Aliased exposing (x)\n\n-- describes Unused\n-- removed import Unused as U\nimport Kept\n\n\nx : Kept.Thing -> Int\nx _ =\n    1\n"
+            , U.test "a placeholder is still an own-line comment, so it keeps the imports on either side of it in separate sort groups" <| \s ->
+                expectRemoveUnusedImports perms s
+                    "module GroupsSeparate exposing (x)\n\nimport Zebra\n-- describes Unused\nimport Unused\nimport Apple\n\n\nx : Zebra.Thing -> Apple.Thing -> Int\nx _ _ =\n    1\n"
+                    "module GroupsSeparate exposing (x)\n\nimport Zebra\n-- describes Unused\n-- removed import Unused\nimport Apple\n\n\nx : Zebra.Thing -> Apple.Thing -> Int\nx _ _ =\n    1\n"
+            , U.test "an effect module's `where { ... }` header positions survive the shift untouched" <| \s ->
+                expectRemoveUnusedImports perms s
+                    "effect module EffectModule where { command = MyCmd } exposing (..)\n\nimport Task\nimport Unused\n\n\ntype MyCmd msg\n    = MyCmd (Task.Task Never msg)\n"
+                    "effect module EffectModule where { command = MyCmd } exposing (..)\n\nimport Task\n\n\ntype MyCmd msg\n    = MyCmd (Task.Task Never msg)\n"
+            , U.test "a per-declaration doc comment after the cut is shifted along with its declaration" <| \s ->
+                expectRemoveUnusedImports perms s
+                    "module DocComment exposing (Config)\n\nimport Unused\nimport Dict\n\n\n{-| Config doc comment. -}\ntype alias Config =\n    Dict.Dict String Int\n"
+                    "module DocComment exposing (Config)\n\nimport Dict\n\n\n{-| Config doc comment. -}\ntype alias Config =\n    Dict.Dict String Int\n"
+            , U.test "nested lambda/when/let content after the cut is shifted correctly" <| \s ->
+                expectRemoveUnusedImports perms s
+                    "module NestedContent exposing (compute)\n\nimport Unused\nimport Dict\n\n\ncompute : Dict.Dict String Int -> Int\ncompute d =\n    when Dict.get \"x\" d is\n        Just n ->\n            let\n                double =\n                    \\x -> x * 2\n            in\n            double n\n\n        Nothing ->\n            0\n"
+                    "module NestedContent exposing (compute)\n\nimport Dict\n\n\ncompute : Dict.Dict String Int -> Int\ncompute d =\n    when Dict.get \"x\" d is\n        Just n ->\n            let\n                double =\n                    \\x -> x * 2\n            in\n            double n\n\n        Nothing ->\n            0\n"
+            ]
+        }
+
+
+expectRemoveUnusedImports : Perms -> Scratch -> String -> String -> Task.Task String Expect.Expectation
+expectRemoveUnusedImports perms s dirty expected =
+    let
+        file =
+            Path.append (Path.fromPosixString "Fixture.gren") s.dir
+    in
+    Support.writeText perms file dirty
+        |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Nothing } [ "--remove-unused-imports", "--show", Path.toPosixString file ])
+        |> Task.map
+            (\r ->
+                Expect.all
+                    [ \_ -> Expect.equal 0 r.exitCode
+                    , \_ -> Expect.equal expected r.stdout
+                    ]
+                    {}
+            )

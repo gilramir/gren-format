@@ -1,0 +1,48 @@
+module NoArgsTests exposing (noArgsSuite)
+
+{-| CLI integration tests for running `gren-format` with no arguments at all
+(and `--help`).
+
+@docs noArgsSuite
+-}
+
+import Expect
+import FileSystem.Path as Path
+import Task
+import Test.Runner.UnitNode as U
+import Support exposing (Perms, makeScratch, removeScratch)
+
+
+{-| -}
+noArgsSuite : Perms -> U.Suite
+noArgsSuite perms =
+    U.suite
+        { name = "NoArgs"
+        , setUpSuite = Support.locateApp perms
+        , tearDownSuite = U.noTearDown
+        , setUp = makeScratch perms
+        , tearDown = removeScratch perms
+        , tests =
+            [ U.test "no gren.json exits nonzero with helpful message" <| \s ->
+                Support.runApp perms s.appPath { cwd = Just (Path.toPosixString s.dir) } []
+                    |> Task.map
+                        (\r ->
+                            Expect.all
+                                [ \_ -> Expect.notEqual 0 r.exitCode
+                                , \_ -> Support.expectContains "Could not find a gren.json" r.stderr
+                                ]
+                                {}
+                        )
+            , U.test "help flag lists --show and --render-doc" <| \s ->
+                Support.runApp perms s.appPath { cwd = Nothing } [ "--help" ]
+                    |> Task.map
+                        (\r ->
+                            Expect.all
+                                [ \_ -> Expect.equal 0 r.exitCode
+                                , \_ -> Support.expectContains "--show" r.stdout
+                                , \_ -> Support.expectContains "--render-doc" r.stdout
+                                ]
+                                {}
+                        )
+            ]
+        }

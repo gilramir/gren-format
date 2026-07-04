@@ -1,0 +1,52 @@
+module JsonFlagsTests exposing (jsonFlagsSuite)
+
+{-| CLI integration tests for the JSON debug flags: `--pre-ast`, `--post-ast`,
+`--lpt`, `--render-doc`.
+
+@docs jsonFlagsSuite
+-}
+
+import Expect
+import Task
+import Test.Runner.UnitNode as U
+import Support exposing (Perms, RunResult, helloFixture)
+
+
+{-| -}
+jsonFlagsSuite : Perms -> U.Suite
+jsonFlagsSuite perms =
+    U.suite
+        { name = "JsonFlags"
+        , setUpSuite = Support.locateApp perms
+        , tearDownSuite = U.noTearDown
+        , setUp = \appPath -> Task.succeed appPath
+        , tearDown = U.noTearDown
+        , tests =
+            [ U.test "pre-ast outputs json with module + context" <| \appPath ->
+                runJson perms appPath "--pre-ast"
+                    |> Task.map (\r -> jsonOk r (Support.expectJsonHasFields [ "module", "context" ] r.stdout))
+            , U.test "post-ast outputs json with module" <| \appPath ->
+                runJson perms appPath "--post-ast"
+                    |> Task.map (\r -> jsonOk r (Support.expectJsonHasFields [ "module" ] r.stdout))
+            , U.test "lpt outputs valid json" <| \appPath ->
+                runJson perms appPath "--lpt"
+                    |> Task.map (\r -> jsonOk r (Support.expectJsonValid r.stdout))
+            , U.test "render-doc outputs a json array" <| \appPath ->
+                runJson perms appPath "--render-doc"
+                    |> Task.map (\r -> jsonOk r (Support.expectJsonArray r.stdout))
+            ]
+        }
+
+
+runJson : Perms -> String -> String -> Task.Task String RunResult
+runJson perms appPath flag =
+    Support.runApp perms appPath { cwd = Nothing } [ flag, helloFixture ]
+
+
+jsonOk : RunResult -> Expect.Expectation -> Expect.Expectation
+jsonOk r jsonExpectation =
+    Expect.all
+        [ \_ -> Expect.equal 0 r.exitCode
+        , \_ -> jsonExpectation
+        ]
+        {}

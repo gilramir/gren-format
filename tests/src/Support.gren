@@ -9,6 +9,12 @@ module Support exposing
     , expectJsonArray
     , writeText
     , makeProject
+    , Scratch
+    , makeScratch
+    , removeScratch
+    , helloFixture
+    , dirtyHello
+    , readBack
     )
 
 {-| Shared helpers for the gren-format CLI test suites: spawning the built
@@ -84,6 +90,27 @@ locateApp perms =
 
 
 
+-- FIXTURES
+
+
+{-| A committed source file, relative to the test runner's own cwd
+(`gren-format/tests/`) -- unlike `dirtyHello`, this one isn't written to a
+scratch dir per test, so it's shared as-is by any suite that just needs
+some valid Gren file to point a flag at. -}
+helloFixture : String
+helloFixture =
+    "testfiles/Hello.gren"
+
+
+{-| An unformatted `module Hello exposing (x)` -- the source most suites
+that need a throwaway scratch file write out, then run `gren-format`
+against, to see it get formatted in place. -}
+dirtyHello : String
+dirtyHello =
+    "module Hello exposing (x)\nx : Int\nx =\n    1\n"
+
+
+
 -- ASSERTIONS
 
 
@@ -149,6 +176,35 @@ writeText perms path text =
     FileSystem.writeFile perms.fs (Bytes.fromString text) path
         |> Task.map (\_ -> {})
         |> Task.mapError (\e -> "write " ++ Path.toPosixString path ++ ": " ++ Debug.toString e)
+
+
+readBack : Perms -> Path -> Task String String
+readBack perms path =
+    FileSystem.readFile perms.fs path
+        |> Task.map (\bytes -> Bytes.toString bytes |> Maybe.withDefault "")
+        |> Task.mapError (\e -> "read " ++ Path.toPosixString path ++ ": " ++ Debug.toString e)
+
+
+{-| A fixture pairing the located app with a fresh temp dir — for suites that
+provision scratch files per test. -}
+type alias Scratch =
+    { appPath : String
+    , dir : Path
+    }
+
+
+makeScratch : Perms -> String -> Task String Scratch
+makeScratch perms appPath =
+    FileSystem.makeTempDirectory perms.fs "gren-format-test"
+        |> Task.map (\dir -> { appPath = appPath, dir = dir })
+        |> Task.mapError (\e -> "makeTempDirectory: " ++ Debug.toString e)
+
+
+removeScratch : Perms -> Scratch -> Task String {}
+removeScratch perms scratch =
+    FileSystem.remove perms.fs { recursive = True } scratch.dir
+        |> Task.map (\_ -> {})
+        |> Task.mapError (\e -> "remove temp dir: " ++ Debug.toString e)
 
 
 {-| Provision a minimal Gren application under `dir`: a `gren.json` plus
