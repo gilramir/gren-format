@@ -97,58 +97,58 @@ parseModule wrapError path source =
             Ok result
 
 
+{-| Build the Logical Printing Tree and render it to the canonical formatted
+string, mapping any formatter failure to `PrettyPrintFailure`. -}
+renderModule : Path -> Src.Module -> Context.Context -> Result Error String
+renderModule path module_ context =
+    let
+        wrapErr errString =
+            PrettyPrintFailure { path = path, error = errString }
+    in
+    makeLogicalPrintingTree module_ context
+        |> Result.mapError wrapErr
+        |> Result.andThen (\lpt -> makePrettyResult lpt |> Result.mapError wrapErr)
+
+
 {-| Full format-and-verify pipeline:
   parse → [optionally remove unused imports] → format1 → reparse → AST compare → format2 → idempotency compare.
   Returns the canonical formatted string on success.
 -}
 formatAndVerify : Bool -> Path -> String -> Result Error String
 formatAndVerify doRemoveUnusedImports path source =
-    when parseModule ParseFailure path source is
-        Err err ->
-            Err err
+    parseModule ParseFailure path source
+        |> Result.andThen
+            (\{ ast = ast1, payload = payload1 } ->
+                let
+                    transformed =
+                        if doRemoveUnusedImports then
+                            RUI.removeUnusedImports ast1 payload1
+                        else
+                            { module_ = ast1, context = payload1 }
+                in
+                renderModule path transformed.module_ transformed.context
+                    |> Result.andThen (verifyReparse path transformed.module_)
+            )
 
-        Ok { ast = ast1, payload = payload1 } ->
-            let
-                transformed =
-                    if doRemoveUnusedImports then
-                        RUI.removeUnusedImports ast1 payload1
-                    else
-                        { module_ = ast1, context = payload1 }
-            in
-            when makeLogicalPrintingTree transformed.module_ transformed.context is
-                Err errString ->
-                    Err (PrettyPrintFailure { path = path, error = errString })
 
-                Ok lpt1 ->
-                    when makePrettyResult lpt1 is
-                        Err errString ->
-                            Err (PrettyPrintFailure { path = path, error = errString })
-
-                        Ok pretty1 ->
-                            when parseModule CheckReparseFailed path pretty1 is
-                                Err err ->
-                                    Err err
-
-                                Ok { ast = ast2, payload = payload2 } ->
-                                    when AstCompare.compareModules transformed.module_ ast2 is
-                                        Err explanation ->
-                                            Err (AstMismatchAfterFormat { path = path, explanation = explanation })
-
-                                        Ok {} ->
-                                            when makeLogicalPrintingTree ast2 payload2 is
-                                                Err errString ->
-                                                    Err (PrettyPrintFailure { path = path, error = errString })
-
-                                                Ok lpt2 ->
-                                                    when makePrettyResult lpt2 is
-                                                        Err errString ->
-                                                            Err (PrettyPrintFailure { path = path, error = errString })
-
-                                                        Ok pretty2 ->
-                                                            if pretty1 == pretty2 then
-                                                                Ok pretty1
-                                                            else
-                                                                Err (NotIdempotent { path = path, diff = unifiedDiffStrings pretty1 pretty2 })
+{-| Reparse the formatted output, confirm its AST matches the original, and
+confirm re-formatting is a fixed point (idempotency). Returns `pretty1`. -}
+verifyReparse : Path -> Src.Module -> String -> Result Error String
+verifyReparse path originalModule pretty1 =
+    parseModule CheckReparseFailed path pretty1
+        |> Result.andThen
+            (\{ ast = ast2, payload = payload2 } ->
+                AstCompare.compareModules originalModule ast2
+                    |> Result.mapError (\explanation -> AstMismatchAfterFormat { path = path, explanation = explanation })
+                    |> Result.andThen (\_ -> renderModule path ast2 payload2)
+                    |> Result.andThen
+                        (\pretty2 ->
+                            if pretty1 == pretty2 then
+                                Ok pretty1
+                            else
+                                Err (NotIdempotent { path = path, diff = unifiedDiffStrings pretty1 pretty2 })
+                        )
+            )
 
 
 {-| Expand a path argument to a list of files to format.
@@ -328,34 +328,29 @@ postAstFile { stdout, fsPermission } path =
                         Task.fail err
 
                     Ok { ast = ast1, payload = payload1 } ->
-                        when makeLogicalPrintingTree ast1 payload1 is
-                            Err errString ->
-                                Task.fail (PrettyPrintFailure { path = path, error = errString })
+                        when renderModule path ast1 payload1 is
+                            Err err ->
+                                Task.fail err
 
-                            Ok lpt ->
-                                when makePrettyResult lpt is
-                                    Err errString ->
-                                        Task.fail (PrettyPrintFailure { path = path, error = errString })
+                            Ok formatted ->
+                                when parseModule CheckReparseFailed path formatted is
+                                    Err err ->
+                                        Task.fail err
 
-                                    Ok formatted ->
-                                        when parseModule CheckReparseFailed path formatted is
-                                            Err err ->
-                                                Task.fail err
+                                    Ok { ast = ast2, payload = payload2 } ->
+                                        when AstCompare.compareModules ast1 ast2 is
+                                            Err explanation ->
+                                                Task.fail (AstMismatchAfterFormat { path = path, explanation = explanation })
 
-                                            Ok { ast = ast2, payload = payload2 } ->
-                                                when AstCompare.compareModules ast1 ast2 is
-                                                    Err explanation ->
-                                                        Task.fail (AstMismatchAfterFormat { path = path, explanation = explanation })
-
-                                                    Ok {} ->
-                                                        let
-                                                            jsonValue =
-                                                                Json.object
-                                                                    [ { key = "module", value = SourceJson.encodeModule ast2 }
-                                                                    , { key = "context", value = ContextJson.encodeContext payload2 }
-                                                                    ]
-                                                        in
-                                                        Stream.Log.line stdout (Json.encode 2 jsonValue)
+                                            Ok {} ->
+                                                let
+                                                    jsonValue =
+                                                        Json.object
+                                                            [ { key = "module", value = SourceJson.encodeModule ast2 }
+                                                            , { key = "context", value = ContextJson.encodeContext payload2 }
+                                                            ]
+                                                in
+                                                Stream.Log.line stdout (Json.encode 2 jsonValue)
             )
 
 
