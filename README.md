@@ -1,6 +1,17 @@
 # gren-format
 
-Standalone CLI for formatting Gren source code.
+`gren-format` is a code formatter for the [Gren](https://gren-lang.org)
+programming language. It rewrites Gren source files into one canonical style, so
+code looks the same no matter who wrote it and diffs stay focused on real
+changes. Run it with no arguments to reformat every source file in your project
+in place, or point it at individual files.
+
+Formatting is **safe by construction**: before writing anything to disk, the tool
+reparses its own output and verifies that the abstract syntax tree is unchanged
+(so a reformat never alters what your program *means*) and that formatting is
+idempotent (so an already-formatted file is left byte-for-byte untouched). If
+either check ever fails, it reports a bug instead of writing. See
+[Formatting pipeline](#formatting-pipeline) below for the full sequence.
 
 ## Usage
 
@@ -8,16 +19,17 @@ Standalone CLI for formatting Gren source code.
 gren-format [flags] [file ...]
 ```
 
-Format specific files in place:
+Format every source file in the project (needs a `gren.json` in the current
+directory or a parent):
+
+```
+gren-format
+```
+
+Format specific files or directories in place:
 
 ```
 gren-format src/Main.gren src/Util.gren
-```
-
-Format every source file in the project:
-
-```
-gren-format --all
 ```
 
 Preview formatted output without writing:
@@ -29,7 +41,7 @@ gren-format --show src/Main.gren
 Remove unused imports while formatting:
 
 ```
-gren-format --remove-unused-imports --all
+gren-format --remove-unused-imports
 gren-format --remove-unused-imports src/Main.gren
 gren-format --remove-unused-imports --show src/Main.gren
 ```
@@ -183,11 +195,23 @@ of reference:
 
 Open-expose imports (`exposing (..)`) are always kept because the pass
 cannot know which names the imported module exports without resolving
-the full module graph.
+the full module graph. An exposed `Type(..)` is kept for the same reason:
+it brings the type's constructors into scope unqualified, and a bare
+constructor name elsewhere in the file can't be attributed to this import
+versus another module's same-named constructor.
+
+A *kept* import still has its exposing list trimmed name by name: any
+exposed name that itself fails the "used anywhere" check is dropped even
+though the import survives — `import Dict exposing (get, insert)` becomes
+`import Dict exposing (get)` when only `get` is referenced.
 
 When an import is removed, any comments whose start line falls within
 that import's source line range are removed with it. Comments elsewhere
-(between imports, before or after the import block) are preserved.
+(between imports, before or after the import block) are preserved. A
+comment on its own line directly above a removed import is left in place
+and the import is replaced by a `-- removed import Foo` placeholder, so
+the comment is never silently reattached to whatever moves up into the
+gap.
 
 ## Debug flags
 
@@ -199,7 +223,7 @@ These flags operate on a single file and write to stdout instead of disk:
 | `--pre-ast <file>` | Print parsed AST as JSON |
 | `--post-ast <file>` | Format, verify ASTs match, print formatted AST as JSON |
 | `--lpt <file>` | Print Logical Printing Tree as JSON |
-| `--pex <file>` | Print PrettyExpressive Doc as JSON |
+| `--render-doc <file>` | Print the `Formatter.Render.Doc` tree as JSON |
 
 `--show` respects `--remove-unused-imports`. The other debug flags operate
 on the raw AST and do not.
