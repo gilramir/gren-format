@@ -165,32 +165,34 @@ onCommand env context flags =
                 |> Task.map (\_ -> {})
 
     else
-        when flags.show is
-            Just path ->
-                runFileOp context.useColor (Format.showFile showConfig path)
-
-            Nothing ->
-                when flags.preAst is
-                    Just path ->
-                        runFileOp context.useColor (Format.preAstFile fileConfig path)
-
-                    Nothing ->
-                        when flags.postAst is
-                            Just path ->
-                                runFileOp context.useColor (Format.postAstFile fileConfig path)
+        let
+            -- The single-file debug flags, in priority order. Each is a
+            -- `Maybe (Task …)` — set when its flag carries a path — and the
+            -- first one set wins; if none is, format the whole project.
+            singleFileOp =
+                Array.foldl
+                    (\maybeTask acc ->
+                        when acc is
+                            Just _ ->
+                                acc
 
                             Nothing ->
-                                when flags.lpt is
-                                    Just path ->
-                                        runFileOp context.useColor (Format.lptFile fileConfig path)
+                                maybeTask
+                    )
+                    Nothing
+                    [ Maybe.map (Format.showFile showConfig) flags.show
+                    , Maybe.map (Format.preAstFile fileConfig) flags.preAst
+                    , Maybe.map (Format.postAstFile fileConfig) flags.postAst
+                    , Maybe.map (Format.lptFile fileConfig) flags.lpt
+                    , Maybe.map (Format.renderDocFile fileConfig) flags.renderDoc
+                    ]
+        in
+        when singleFileOp is
+            Just task ->
+                runFileOp context.useColor task
 
-                                    Nothing ->
-                                        when flags.renderDoc is
-                                            Just path ->
-                                                runFileOp context.useColor (Format.renderDocFile fileConfig path)
-
-                                            Nothing ->
-                                                formatProject env context flags
+            Nothing ->
+                formatProject env context flags
 
 
 formatProject : Node.Environment -> Context -> FormatFlags -> Task Program.Failure {}
