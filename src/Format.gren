@@ -4,6 +4,7 @@ module Format exposing
     , run
     , expandPathToFiles
     , formatFile
+    , formatPaths
     , showFile
     , preAstFile
     , postAstFile
@@ -281,6 +282,38 @@ formatFile { fsPermission, removeUnusedImports } path =
                             atomicWrite fsPermission path pretty
                                 |> Task.map (\_ -> True)
             )
+
+
+{-| Format every file reached by the given path arguments — a directory expands
+to its direct Gren source files (`expandPathToFiles`), any other path is that
+file — overwriting each in place. Returns how many were rewritten vs. already
+formatted. -}
+formatPaths : { fsPermission : FileSystem.Permission, removeUnusedImports : Bool } -> Array Path -> Task Error { rewritten : Int, skipped : Int }
+formatPaths config paths =
+    let
+        formatOne filePath innerTask =
+            innerTask
+                |> Task.andThen
+                    (\counts ->
+                        formatFile config filePath
+                            |> Task.map
+                                (\wasRewritten ->
+                                    if wasRewritten then
+                                        { counts | rewritten = counts.rewritten + 1 }
+                                    else
+                                        { counts | skipped = counts.skipped + 1 }
+                                )
+                    )
+
+        expandAndFormat path outerTask =
+            outerTask
+                |> Task.andThen
+                    (\counts ->
+                        expandPathToFiles config.fsPermission path
+                            |> Task.andThen (\filePaths -> Array.foldl formatOne (Task.succeed counts) filePaths)
+                    )
+    in
+    Array.foldl expandAndFormat (Task.succeed { rewritten = 0, skipped = 0 }) paths
 
 
 showFile : { stdout : Stream.Writable Bytes, fsPermission : FileSystem.Permission, removeUnusedImports : Bool } -> Path -> Task Error {}
