@@ -1,0 +1,9 @@
+module BareExposedType exposing (x)
+
+import Fruit exposing (Apple)
+import Shapes exposing (Circle, Square)
+
+
+x : Circle -> Int
+x _ =
+    1

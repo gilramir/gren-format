@@ -1,0 +1,8 @@
+module BareExposedType exposing (x)
+
+import Shapes exposing (Circle)
+
+
+x : Circle -> Int
+x _ =
+    1

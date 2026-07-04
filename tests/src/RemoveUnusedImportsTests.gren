@@ -54,6 +54,12 @@ removeUnusedImportsFlagSuite perms =
                 expectRemoveUnusedImports perms s "PartialExposingTrim"
             , U.test "nested lambda/when/let content after the cut is shifted correctly" <| \s ->
                 expectRemoveUnusedImports perms s "NestedContent"
+            , U.test "an import-level `exposing (..)` is kept even though nothing in the file references it, unlike a same-looking unused explicit import" <| \s ->
+                expectRemoveUnusedImports perms s "OpenImportExposing"
+            , U.test "a bare exposed type name (no `(..)`) follows the same used/unused rule as any other exposed name" <| \s ->
+                expectRemoveUnusedImports perms s "BareExposedType"
+            , U.test "an exposed operator follows the same used/unused rule as any other exposed name" <| \s ->
+                expectRemoveUnusedImports perms s "ExposedOperator"
             ]
         }
 

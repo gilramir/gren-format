@@ -1,0 +1,9 @@
+module ExposedOperator exposing (x)
+
+import Combinators exposing ((|>>), (<<|))
+import ExtraOps exposing ((<+>))
+
+
+x : Int -> Int -> Int
+x a b =
+    a |>> b

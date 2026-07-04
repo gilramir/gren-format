@@ -1,0 +1,9 @@
+module OpenImportExposing exposing (x)
+
+import Choice exposing (..)
+import Kept
+
+
+x : Kept.Thing -> Int
+x _ =
+    1
