@@ -9,6 +9,11 @@
       "build": [
         "gren make Main"
       ],
+      "build_test": [
+        "gren make Main",
+        "cd tests/",
+        "gren make Main"
+      ],
       "test": [
         "gren make Main",
         "cd tests/",
