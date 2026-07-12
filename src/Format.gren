@@ -7,6 +7,7 @@ module Format exposing
     , formatPaths
     , showFile
     , preAstFile
+    , preContextFile
     , postAstFile
     , lptFile
     , renderDocFile
@@ -348,6 +349,24 @@ preAstFile { stdout, fsPermission } path =
                                     ]
                         in
                         Stream.Log.line stdout (Json.encode 2 jsonValue)
+            )
+
+
+{-| Parse a single file and print only the first parse's `Context` (the comment
+and whitespace stream) as JSON — the `--pre-ast` output without the `module`
+half. Useful for confirming that two environments parse the same bytes to the
+same comment positions. -}
+preContextFile : { stdout : Stream.Writable Bytes, fsPermission : FileSystem.Permission } -> Path -> Task Error {}
+preContextFile { stdout, fsPermission } path =
+    readSource fsPermission path
+        |> Task.andThen
+            (\source ->
+                when parseModule ParseFailure path source is
+                    Err err ->
+                        Task.fail err
+
+                    Ok { payload } ->
+                        Stream.Log.line stdout (Json.encode 2 (ContextJson.encodeContext payload))
             )
 
 

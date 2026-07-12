@@ -1,6 +1,6 @@
 module OpenType exposing (x)
 
-import Choice exposing (ChoiceType (..))
+import Choice exposing (ChoiceType(..))
 import Kept
 
 

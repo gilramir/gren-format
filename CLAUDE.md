@@ -60,6 +60,7 @@ order:
 | `removeUnusedImports` | `--remove-unused-imports` | Also strip unused imports while formatting |
 | `show` | `--show <path>` | Parse + pretty-print one file to stdout (no write) |
 | `preAst` | `--pre-ast <path>` | Print the original AST + parse context as JSON |
+| `preContext` | `--pre-context <path>` | Print just the original parse `Context` (comment/whitespace stream) as JSON |
 | `postAst` | `--post-ast <path>` | Format, verify ASTs match, print the formatted AST as JSON |
 | `lpt` | `--lpt <path>` | Print the Logical Printing Tree as JSON |
 | `renderDoc` | `--render-doc <path>` | Print the `Formatter.Render.Doc` tree as JSON |
