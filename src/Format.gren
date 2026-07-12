@@ -10,7 +10,6 @@ module Format exposing
     , preContextFile
     , postAstFile
     , lptFile
-    , renderDocFile
     , prettifyError
     )
 
@@ -26,7 +25,7 @@ import Compiler.Ast.Compare as AstCompare
 import Compiler.Ast.Source as Src
 import UnifiedDiff exposing (unifiedDiffStrings)
 import Formatter.Logical.MakeLogical exposing (makeLogicalPrintingTree)
-import Formatter.Render.MakeRender exposing (makePrettyResult, lptToRenderDocJson)
+import Formatter.Render.MakeRender exposing (makePrettyResult)
 import Formatter.Logical.LPTJson as LPTJson
 import Compiler.Outline as Outline exposing (Outline)
 import RemoveUnusedImports as RUI
@@ -422,30 +421,6 @@ lptFile { stdout, fsPermission } path =
 
                             Ok lpt ->
                                 Stream.Log.line stdout (LPTJson.lptToJson lpt)
-            )
-
-
-renderDocFile : { stdout : Stream.Writable Bytes, fsPermission : FileSystem.Permission } -> Path -> Task Error {}
-renderDocFile { stdout, fsPermission } path =
-    readSource fsPermission path
-        |> Task.andThen
-            (\source ->
-                when parseModule ParseFailure path source is
-                    Err err ->
-                        Task.fail err
-
-                    Ok { ast, payload } ->
-                        when makeLogicalPrintingTree ast payload is
-                            Err errString ->
-                                Task.fail (PrettyPrintFailure { path = path, error = errString })
-
-                            Ok lpt ->
-                                when lptToRenderDocJson lpt is
-                                    Err errString ->
-                                        Task.fail (PrettyPrintFailure { path = path, error = errString })
-
-                                    Ok json ->
-                                        Stream.Log.line stdout json
             )
 
 

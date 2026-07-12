@@ -32,7 +32,6 @@ type alias FormatFlags =
     , preContext : Maybe Path
     , postAst : Maybe Path
     , lpt : Maybe Path
-    , renderDoc : Maybe Path
     }
 
 
@@ -52,7 +51,7 @@ command =
             }
     , flags =
         AP.initFlags
-            (\removeUnusedImports show preAst preContext postAst lpt renderDoc ->
+            (\removeUnusedImports show preAst preContext postAst lpt ->
                 { files = []
                 , removeUnusedImports = removeUnusedImports
                 , show = show
@@ -60,7 +59,6 @@ command =
                 , preContext = preContext
                 , postAst = postAst
                 , lpt = lpt
-                , renderDoc = renderDoc
                 }
             )
             |> AP.toggle (AP.LongOnly "remove-unused-imports") "Remove unused imports while formatting"
@@ -69,7 +67,6 @@ command =
             |> AP.flag (AP.LongOnly "pre-context") AP.pathParser "Parse a single file and print its parse Context (comment/whitespace stream) as JSON to stdout"
             |> AP.flag (AP.LongOnly "post-ast") AP.pathParser "Parse and format a file, verify the ASTs match, then print the formatted file's AST as JSON to stdout"
             |> AP.flag (AP.LongOnly "lpt") AP.pathParser "Parse a single file and print its Logical Printing Tree as JSON to stdout"
-            |> AP.flag (AP.LongOnly "render-doc") AP.pathParser "Parse a single file and print its Render.Doc tree as JSON to stdout"
     , commonDescription =
         Nothing
     , summary =
@@ -125,7 +122,6 @@ onCommand env context flags =
                     || flags.preContext /= Nothing
                     || flags.postAst /= Nothing
                     || flags.lpt /= Nothing
-                    || flags.renderDoc /= Nothing
         in
         if anyFlagSet then
             Task.fail (Program.ExitMessage "Cannot combine file path arguments with flags. Use --help for options.")
@@ -160,7 +156,6 @@ onCommand env context flags =
                     , Maybe.map (Format.preContextFile fileConfig) flags.preContext
                     , Maybe.map (Format.postAstFile fileConfig) flags.postAst
                     , Maybe.map (Format.lptFile fileConfig) flags.lpt
-                    , Maybe.map (Format.renderDocFile fileConfig) flags.renderDoc
                     ]
         in
         when singleFileOp is
