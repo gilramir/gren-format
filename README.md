@@ -1,3 +1,5 @@
+![gren-format logo](docs/gren-format-logo.png)
+
 # gren-format
 
 `gren-format` is a code formatter for the [Gren](https://gren-lang.org)
