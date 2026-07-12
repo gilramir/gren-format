@@ -55,54 +55,7 @@ result at each stage to ensure correctness.
 
 ### Standard pipeline
 
-```
-source text
-     │
-     ▼
-  [ parse ]
-     │
-     ├─ error → ParseFailure
-     │
-     ▼
- AST + Context  (ast1, ctx1)
-     │
-     ▼
-  [ format ]  (AST → LPT → pretty-printer)
-     │
-     ├─ error → PrettyPrintFailure
-     │
-     ▼
- formatted text  (pretty1)
-     │
-     ▼
-  [ reparse ]
-     │
-     ├─ error → CheckReparseFailed
-     │
-     ▼
- AST + Context  (ast2, ctx2)
-     │
-     ▼
-  [ compare ASTs ]  ast1 == ast2?
-     │
-     ├─ mismatch → AstMismatchAfterFormat
-     │
-     ▼
-  [ format again ]  (ast2 + ctx2)
-     │
-     ├─ error → PrettyPrintFailure
-     │
-     ▼
- formatted text  (pretty2)
-     │
-     ▼
-  [ check idempotency ]  pretty1 == pretty2?
-     │
-     ├─ mismatch → NotIdempotent
-     │
-     ▼
-  [ write to disk ]
-```
+![Standard formatting pipeline](docs/diagrams/standard-pipeline.png)
 
 The reparse + AST comparison step ensures the formatter never silently
 changes the meaning of a program. The idempotency check ensures that
@@ -116,65 +69,7 @@ inserted between parsing and the first format pass. The rest of the
 pipeline is identical, but all comparisons are made against the
 transformed AST rather than the original.
 
-```
-source text
-     │
-     ▼
-  [ parse ]
-     │
-     ├─ error → ParseFailure
-     │
-     ▼
- AST + Context  (ast1, ctx1)
-     │
-     ▼
-  [ remove unused imports ]
-     │  · qualified imports with no qualified references → removed
-     │  · explicit-expose imports with no used exposed names
-     │    and no qualified references → removed
-     │  · open-expose imports (exposing (..)) → always kept
-     │  · comments inside a removed import → also removed
-     │
-     ▼
- AST + Context  (ast1', ctx1')   ← modified AST
-     │
-     ▼
-  [ format ]
-     │
-     ├─ error → PrettyPrintFailure
-     │
-     ▼
- formatted text  (pretty1)
-     │
-     ▼
-  [ reparse ]
-     │
-     ├─ error → CheckReparseFailed
-     │
-     ▼
- AST + Context  (ast2, ctx2)
-     │
-     ▼
-  [ compare ASTs ]  ast1' == ast2?   ← compared against transformed AST
-     │
-     ├─ mismatch → AstMismatchAfterFormat
-     │
-     ▼
-  [ format again ]  (ast2 + ctx2)
-     │
-     ├─ error → PrettyPrintFailure
-     │
-     ▼
- formatted text  (pretty2)
-     │
-     ▼
-  [ check idempotency ]  pretty1 == pretty2?
-     │
-     ├─ mismatch → NotIdempotent
-     │
-     ▼
-  [ write to disk ]
-```
+![Formatting pipeline with --remove-unused-imports](docs/diagrams/remove-unused-imports-pipeline.png)
 
 ## Unused import analysis
 

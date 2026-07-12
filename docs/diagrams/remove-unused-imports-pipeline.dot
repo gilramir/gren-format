@@ -1,0 +1,50 @@
+digraph RemoveUnusedImportsPipeline {
+    rankdir=TB;
+    bgcolor="white";
+    fontname="Helvetica,Arial,sans-serif";
+    fontsize=12;
+    ranksep=0.45;
+    nodesep=0.55;
+
+    node [fontname="Helvetica,Arial,sans-serif", fontsize=11];
+    edge [fontname="Helvetica,Arial,sans-serif", fontsize=10, color="#555555"];
+
+    // Data nodes
+    node [shape=box, style="rounded,filled", fillcolor="#eef2f7", color="#7a95b8", fontcolor="#1c2b3a"];
+    source [label="source text"];
+    ast1   [label="AST + Context\n(ast1, ctx1)"];
+    ast1p  [label="AST + Context\n(ast1', ctx1')\nmodified AST"];
+
+    // Process nodes
+    node [shape=box, style="rounded,filled", fillcolor="#dbe9f7", color="#3f6fa8", fontcolor="#1c2b3a"];
+    parse         [label="parse"];
+    removeImports [label="remove unused imports"];
+
+    // Error / failure nodes
+    node [shape=box, style="rounded,filled", fillcolor="#fbdede", color="#c0392b", fontcolor="#7a1f13"];
+    parseFail [label="ParseFailure"];
+
+    // Continuation node
+    node [shape=box, style="rounded,dashed,filled", fillcolor="#f2f2f2", color="#888888", fontcolor="#333333"];
+    continue [label="continue with the standard pipeline\nformat → reparse → compare ASTs → format again → check idempotency → write to disk\n(ASTs are compared against ast1' in place of ast1)"];
+
+    // Explanatory note for the transform step
+    rulesNote [shape=note, style=filled, fillcolor="#fffbe6", color="#c9a227",
+               fontcolor="#4a3b06", fontsize=9,
+               label="qualified imports with no qualified refs → removed\lexplicit-expose imports with no used exposed names\l  and no qualified refs → removed\lopen-expose imports (exposing (..)) → always kept\lcomments inside a removed import → also removed\l"];
+
+    // Main flow
+    source -> parse;
+    parse  -> ast1;
+    ast1   -> removeImports;
+    removeImports -> ast1p;
+    ast1p  -> continue;
+
+    removeImports -> rulesNote [style=dotted, arrowhead=none, color="#c9a227", constraint=false];
+
+    // Error branch
+    parse -> parseFail [style=dashed, color="#c0392b", fontcolor="#7a1f13", label="error"];
+
+    { rank=same; ast1; parseFail }
+    { rank=same; ast1p; rulesNote }
+}

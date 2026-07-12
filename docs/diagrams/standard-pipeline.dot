@@ -1,0 +1,74 @@
+digraph StandardPipeline {
+    rankdir=TB;
+    bgcolor="white";
+    fontname="Helvetica,Arial,sans-serif";
+    fontsize=12;
+    ranksep=0.45;
+    nodesep=0.55;
+
+    node [fontname="Helvetica,Arial,sans-serif", fontsize=11];
+    edge [fontname="Helvetica,Arial,sans-serif", fontsize=10, color="#555555"];
+
+    // Data nodes
+    node [shape=box, style="rounded,filled", fillcolor="#eef2f7", color="#7a95b8", fontcolor="#1c2b3a"];
+    source  [label="source text"];
+    ast1    [label="AST + Context\n(ast1, ctx1)"];
+    pretty1 [label="formatted text\n(pretty1)"];
+    ast2    [label="AST + Context\n(ast2, ctx2)"];
+    pretty2 [label="formatted text\n(pretty2)"];
+
+    // Terminal success nodes
+    node [fillcolor="#d9f2df", color="#4c9a5b", fontcolor="#1f4d2c"];
+    diskwrite [label="write to disk"];
+    noopWrite [label="already matches on disk\n(no write)"];
+
+    // Process nodes
+    node [shape=box, style="rounded,filled", fillcolor="#dbe9f7", color="#3f6fa8", fontcolor="#1c2b3a"];
+    parse   [label="parse"];
+    format1 [label="format\n(AST → LPT → pretty-printer)"];
+    reparse [label="reparse"];
+    format2 [label="format again\n(ast2 + ctx2)"];
+
+    // Decision nodes
+    node [shape=diamond, style=filled, fillcolor="#fdf3d0", color="#b8952f", fontcolor="#1c2b3a"];
+    compareAst  [label="compare ASTs\nast1 == ast2?"];
+    checkIdem   [label="check idempotency\npretty1 == pretty2?"];
+    checkOnDisk [label="pretty2 == source text?"];
+
+    // Error / failure nodes
+    node [shape=box, style="rounded,filled", fillcolor="#fbdede", color="#c0392b", fontcolor="#7a1f13"];
+    parseFail    [label="ParseFailure"];
+    prettyFail   [label="PrettyPrintFailure"];
+    reparseFail  [label="CheckReparseFailed"];
+    mismatchFail [label="AstMismatchAfterFormat"];
+    idemFail     [label="NotIdempotent"];
+
+    // Main flow
+    source -> parse;
+    parse  -> ast1;
+    ast1   -> format1;
+    format1 -> pretty1;
+    pretty1 -> reparse;
+    reparse -> ast2;
+    ast2 -> compareAst;
+    compareAst -> format2 [label="match"];
+    format2 -> pretty2;
+    pretty2 -> checkIdem;
+    checkIdem -> checkOnDisk [label="match"];
+    checkOnDisk -> noopWrite [label="unchanged"];
+    checkOnDisk -> diskwrite [label="changed"];
+
+    // Error branches
+    parse      -> parseFail    [style=dashed, color="#c0392b", fontcolor="#7a1f13", label="error"];
+    format1    -> prettyFail   [style=dashed, color="#c0392b", fontcolor="#7a1f13", label="error"];
+    reparse    -> reparseFail  [style=dashed, color="#c0392b", fontcolor="#7a1f13", label="error"];
+    compareAst -> mismatchFail [style=dashed, color="#c0392b", fontcolor="#7a1f13", label="mismatch"];
+    format2    -> prettyFail   [style=dashed, color="#c0392b", fontcolor="#7a1f13", label="error"];
+    checkIdem  -> idemFail     [style=dashed, color="#c0392b", fontcolor="#7a1f13", label="mismatch"];
+
+    { rank=same; ast1; parseFail }
+    { rank=same; ast2; reparseFail }
+    { rank=same; format2; mismatchFail }
+    { rank=same; checkOnDisk; idemFail }
+    { rank=same; diskwrite; noopWrite }
+}
