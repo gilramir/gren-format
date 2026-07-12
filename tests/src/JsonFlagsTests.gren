@@ -1,7 +1,7 @@
 module JsonFlagsTests exposing (jsonFlagsSuite)
 
 {-| CLI integration tests for the JSON debug flags: `--pre-ast`,
-`--pre-context`, `--post-ast`, `--lpt`, `--box`.
+`--pre-context`, `--post-ast`, `--post-context`, `--lpt`, `--box`.
 
 @docs jsonFlagsSuite
 -}
@@ -31,6 +31,9 @@ jsonFlagsSuite perms =
             , U.test "post-ast outputs json with module" <| \appPath ->
                 runJson perms appPath "--post-ast"
                     |> Task.map (\r -> jsonOk r (Support.expectJsonHasFields [ "module" ] r.stdout))
+            , U.test "post-context outputs valid json" <| \appPath ->
+                runJson perms appPath "--post-context"
+                    |> Task.map (\r -> jsonOk r (Support.expectJsonValid r.stdout))
             , U.test "lpt outputs valid json" <| \appPath ->
                 runJson perms appPath "--lpt"
                     |> Task.map (\r -> jsonOk r (Support.expectJsonValid r.stdout))

@@ -9,6 +9,7 @@ module Format exposing
     , preAstFile
     , preContextFile
     , postAstFile
+    , postContextFile
     , lptFile
     , boxFile
     , prettifyError
@@ -403,6 +404,40 @@ postAstFile { stdout, fsPermission } path =
                                                             ]
                                                 in
                                                 Stream.Log.line stdout (Json.encode 2 jsonValue)
+            )
+
+
+{-| Format a single file, verify the ASTs match, then print only the
+formatted file's `Context` (the comment and whitespace stream) as JSON — the
+`--post-ast` output without the `module` half. Useful for confirming that
+formatting produces the expected comment/blank-line layout without the noise
+of the full AST. -}
+postContextFile : { stdout : Stream.Writable Bytes, fsPermission : FileSystem.Permission } -> Path -> Task Error {}
+postContextFile { stdout, fsPermission } path =
+    readSource fsPermission path
+        |> Task.andThen
+            (\source ->
+                when parseModule ParseFailure path source is
+                    Err err ->
+                        Task.fail err
+
+                    Ok { ast = ast1, payload = payload1 } ->
+                        when renderModule path ast1 payload1 is
+                            Err err ->
+                                Task.fail err
+
+                            Ok formatted ->
+                                when parseModule CheckReparseFailed path formatted is
+                                    Err err ->
+                                        Task.fail err
+
+                                    Ok { ast = ast2, payload = payload2 } ->
+                                        when AstCompare.compareModules ast1 ast2 is
+                                            Err explanation ->
+                                                Task.fail (AstMismatchAfterFormat { path = path, explanation = explanation })
+
+                                            Ok {} ->
+                                                Stream.Log.line stdout (Json.encode 2 (ContextJson.encodeContext payload2))
             )
 
 
