@@ -134,3 +134,17 @@ These flags operate on a single file and write to stdout instead of disk:
 
 `--show` respects `--remove-unused-imports`. The other debug flags operate
 on the raw AST and do not.
+
+## Getting help / reporting bugs
+
+Found a bug, or have formatting output that looks wrong? Open an issue at
+[github.com/gilramir/gren-format/issues](https://github.com/gilramir/gren-format/issues).
+
+[Discord](https://discord.gg/Chb9YB9Vmh) is the official meeting place for
+people who are curious about Gren. The core team posts development updates
+there at regular intervals, and there are channels for people to ask
+questions.
+
+---
+
+Gilbert Ramirez <gram@alumni.rice.edu>
