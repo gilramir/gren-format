@@ -63,6 +63,7 @@ order:
 | `preContext` | `--pre-context <path>` | Print just the original parse `Context` (comment/whitespace stream) as JSON |
 | `postAst` | `--post-ast <path>` | Format, verify ASTs match, print the formatted AST as JSON |
 | `lpt` | `--lpt <path>` | Print the Logical Printing Tree as JSON |
+| `box` | `--box <path>` | Print the `Box` tree each top-level declaration renders to, as a JSON array |
 
 ### `Format.gren`
 
@@ -128,7 +129,7 @@ cd tests && ./run-tests.sh
 All local siblings except the published Gren packages:
 
 - `gilramir/gren-argparse` (`../gren-argparse`) — `Argparse.Parser`, `Argparse.PrettyPrinter`, `Argparse.Program`
-- `gilramir/gren-format-lib` (`local:../gren-format-lib`) — `Formatter.Logical.MakeLogical`, `Formatter.Render.MakeRender` (`makePrettyResult`, `lptToRenderDocJson`), `Formatter.Logical.LPTJson`, plus the AST-comparison / JSON-encoder modules `Compiler.Ast.Compare`, `Compiler.Ast.Source.Json`, `Compiler.Parse.Context.Json`
+- `gilramir/gren-format-lib` (`local:../gren-format-lib`) — `Formatter.Logical.MakeLogical`, `Formatter.Render.MakeRender` (`makePrettyResult`, `lptToBoxJson`), `Formatter.Logical.LPTJson`, plus the AST-comparison / JSON-encoder modules `Compiler.Ast.Compare`, `Compiler.Ast.Source.Json`, `Compiler.Parse.Context.Json`
 - `gilramir/gren-diff` — the unified diff shown by the `NotIdempotent` error
 - `gren-lang/compiler-common` — AST types, parser, outline, paths
 - `gren-lang/compiler-node` — `Compiler.Outline`, `Compiler.Paths`, `Cli.Report`, `Cli.PrettyPrinter`
