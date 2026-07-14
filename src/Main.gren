@@ -66,11 +66,11 @@ command =
         |> AP.toggle (AP.LongOnly "remove-unused-imports") "Remove unused imports while formatting"
         |> AP.flag (AP.LongOnly "show") AP.pathParser "Parse and pretty-print a single file to stdout without modifying it"
         |> AP.flag (AP.LongOnly "pre-ast") AP.pathParser "Parse a single file and print its AST as JSON to stdout"
-        |> AP.flag (AP.LongOnly "pre-context") AP.pathParser "Parse a single file and print its parse Context (comment/whitespace stream) as JSON to stdout"
+        |> AP.flag (AP.LongOnly "pre-context") AP.pathParser "Parse a single file and print its parse Context (comments) as JSON to stdout"
         |> AP.flag (AP.LongOnly "post-ast") AP.pathParser "Parse and format a file, verify the ASTs match, then print the formatted file's AST as JSON to stdout"
-        |> AP.flag (AP.LongOnly "post-context") AP.pathParser "Parse and format a file, verify the ASTs match, then print the formatted file's parse Context (comment/whitespace stream) as JSON to stdout"
+        |> AP.flag (AP.LongOnly "post-context") AP.pathParser "Parse and format a file, verify the ASTs match, then print the formatted file's parse Context as JSON to stdout"
         |> AP.flag (AP.LongOnly "lpt") AP.pathParser "Parse a single file and print its Logical Printing Tree as JSON to stdout"
-        |> AP.flag (AP.LongOnly "box") AP.pathParser "Parse a single file and print the Box tree each top-level declaration renders to as a JSON array to stdout"
+        |> AP.flag (AP.LongOnly "box") AP.pathParser "Parse a single file and print the Box render tree as JSON to stdout"
     , commonDescription = Nothing
     , summary = "Format Gren source code."
     , example = PP.empty

@@ -365,8 +365,8 @@ preAstFile { stdout, fsPermission } path =
             )
 
 
-{-| Parse a single file and print only the first parse's `Context` (the comment
-and whitespace stream) as JSON — the `--pre-ast` output without the `module`
+{-| Parse a single file and print only the first parse's `Context` (the comments)
+as JSON — the `--pre-ast` output without the `module`
 half. Useful for confirming that two environments parse the same bytes to the
 same comment positions. -}
 preContextFile : { stdout : Stream.Writable Bytes, fsPermission : FileSystem.Permission } -> Path -> Task Error {}

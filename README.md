@@ -127,10 +127,10 @@ These flags operate on a single file and write to stdout instead of disk:
 |---|---|
 | `--show <file>` | Format and print result |
 | `--pre-ast <file>` | Print parsed AST as JSON |
-| `--pre-context <file>` | Print parsed parse Context (comment/whitespace stream) as JSON |
+| `--pre-context <file>` | Print parsed parse Context (comments) as JSON |
 | `--post-ast <file>` | Format, verify ASTs match, print formatted AST as JSON |
 | `--lpt <file>` | Print Logical Printing Tree as JSON |
-| `--box <file>` | Print the `Box` tree each top-level declaration renders to, as a JSON array |
+| `--box <file>` | Print the `Box` render tree as a JSON |
 
 `--show` respects `--remove-unused-imports`. The other debug flags operate
 on the raw AST and do not.
