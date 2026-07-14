@@ -26,7 +26,7 @@ import FileSystem.Path as Path exposing (Path)
 import Compiler.Ast.Compare as AstCompare
 import Compiler.Ast.Source as Src
 import UnifiedDiff exposing (unifiedDiffStrings)
-import Formatter.Logical.MakeLogical exposing (makeLogicalPrintingTree)
+import Formatter.Logical exposing (makeLogicalPrintingTree)
 import Formatter.Render exposing (makePrettyResult, lptToBoxJson)
 import Formatter.Logical.LPTJson as LPTJson
 import Compiler.Outline as Outline exposing (Outline)
