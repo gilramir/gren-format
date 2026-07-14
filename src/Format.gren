@@ -1,45 +1,44 @@
 module Format exposing
     ( Config
     , Error(..)
-    , run
+    , boxFile
     , expandPathToFiles
     , formatFile
     , formatPaths
-    , showFile
-    , preAstFile
-    , preContextFile
+    , lptFile
     , postAstFile
     , postContextFile
-    , lptFile
-    , boxFile
+    , preAstFile
+    , preContextFile
     , prettifyError
+    , run
+    , showFile
     )
 
-
-import Char
-import Stream
-import Stream.Log
-import Task exposing (Task)
 import Bytes exposing (Bytes)
-import FileSystem
-import FileSystem.Path as Path exposing (Path)
+import Char
+import Cli.PrettyPrinter as PP
+import Cli.Report as Report exposing (Report)
 import Compiler.Ast.Compare as AstCompare
 import Compiler.Ast.Source as Src
-import UnifiedDiff exposing (unifiedDiffStrings)
-import Formatter.Logical exposing (makeLogicalPrintingTree)
-import Formatter.Render exposing (makePrettyResult, lptToBoxJson)
-import Formatter.Logical.LPTJson as LPTJson
-import Compiler.Outline as Outline exposing (Outline)
-import RemoveUnusedImports as RUI
-import Cli.Report as Report exposing (Report)
-import Terminal.ProjectOutline as ProjectOutline
-import Cli.PrettyPrinter as PP
-import Compiler.Parse.Module as PM
-import Compiler.Parse.Context as Context
 import Compiler.Ast.Source.Json as SourceJson
+import Compiler.Outline as Outline exposing (Outline)
+import Compiler.Parse.Context as Context
 import Compiler.Parse.Context.Json as ContextJson
+import Compiler.Parse.Module as PM
+import FileSystem
+import FileSystem.Path as Path exposing (Path)
+import Formatter.Logical exposing (makeLogicalPrintingTree)
+import Formatter.Logical.LPTJson as LPTJson
+import Formatter.Render exposing (lptToBoxJson, makePrettyResult)
 import Json.Encode as Json
+import RemoveUnusedImports as RUI
+import Stream
+import Stream.Log
 import String.Parser.Advanced as Parser
+import Task exposing (Task)
+import Terminal.ProjectOutline as ProjectOutline
+import UnifiedDiff exposing (unifiedDiffStrings)
 
 
 type alias Config =
@@ -126,6 +125,7 @@ formatAndVerify doRemoveUnusedImports path source =
                     transformed =
                         if doRemoveUnusedImports then
                             RUI.removeUnusedImports ast1 payload1
+
                         else
                             { module_ = ast1, context = payload1 }
                 in
@@ -148,6 +148,7 @@ verifyReparse path originalModule pretty1 =
                         (\pretty2 ->
                             if pretty1 == pretty2 then
                                 Ok pretty1
+
                             else
                                 Err (NotIdempotent { path = path, diff = unifiedDiffStrings pretty1 pretty2 })
                         )
@@ -199,14 +200,16 @@ isGrenSourceName name =
 atomicWrite : FileSystem.Permission -> Path -> String -> Task Error {}
 atomicWrite fsPermission path pretty =
     let
-        tmpPath = { path | extension = "tmp" }
+        tmpPath =
+            { path | extension = "tmp" }
     in
     FileSystem.writeFile fsPermission (Bytes.fromString (pretty ++ "\n")) tmpPath
         |> Task.mapError (\fsErr -> OverwriteFailure { path = path, error = FileSystem.errorToString fsErr })
-        |> Task.andThen (\_ ->
-            FileSystem.move fsPermission path tmpPath
-                |> Task.mapError (\fsErr -> OverwriteFailure { path = path, error = FileSystem.errorToString fsErr })
-        )
+        |> Task.andThen
+            (\_ ->
+                FileSystem.move fsPermission path tmpPath
+                    |> Task.mapError (\fsErr -> OverwriteFailure { path = path, error = FileSystem.errorToString fsErr })
+            )
         |> Task.map (\_ -> {})
 
 
@@ -223,6 +226,7 @@ run { fsPermission, pathToString, projectPath, outline, removeUnusedImports } =
                                 if path.extension /= "gren" then
                                     -- Probably kernel code
                                     Task.succeed acc
+
                                 else
                                     let
                                         relPath =
@@ -235,11 +239,13 @@ run { fsPermission, pathToString, projectPath, outline, removeUnusedImports } =
                                         Ok pretty ->
                                             if pretty ++ "\n" == source then
                                                 Task.succeed { acc | skipped = acc.skipped + 1 }
+
                                             else
                                                 atomicWrite fsPermission path pretty
-                                                    |> Task.map (\_ ->
-                                                        { acc | rewritten = Array.pushLast (pathToString path) acc.rewritten }
-                                                    )
+                                                    |> Task.map
+                                                        (\_ ->
+                                                            { acc | rewritten = Array.pushLast (pathToString path) acc.rewritten }
+                                                        )
                             )
                             previous
 
@@ -248,11 +254,15 @@ run { fsPermission, pathToString, projectPath, outline, removeUnusedImports } =
                             paths =
                                 if Array.length rewritten > 0 then
                                     String.join "\n" rewritten ++ "\n"
+
                                 else
                                     ""
 
-                            rewrittenCount = String.fromInt (Array.length rewritten)
-                            skippedCount = String.fromInt skipped
+                            rewrittenCount =
+                                String.fromInt (Array.length rewritten)
+
+                            skippedCount =
+                                String.fromInt skipped
                         in
                         paths ++ rewrittenCount ++ " files reformatted, " ++ skippedCount ++ " files already formatted."
                 in
@@ -280,6 +290,7 @@ formatFile { fsPermission, removeUnusedImports } path =
                     Ok pretty ->
                         if pretty ++ "\n" == source then
                             Task.succeed False
+
                         else
                             atomicWrite fsPermission path pretty
                                 |> Task.map (\_ -> True)
@@ -302,6 +313,7 @@ formatPaths config paths =
                                 (\wasRewritten ->
                                     if wasRewritten then
                                         { counts | rewritten = counts.rewritten + 1 }
+
                                     else
                                         { counts | skipped = counts.skipped + 1 }
                                 )
@@ -505,7 +517,7 @@ pathRelativeFrom base absolute =
 findCommonPrefix : Int -> Array String -> Array String -> Int
 findCommonPrefix count left right =
     when { l = Array.popFirst left, r = Array.popFirst right } is
-        { l = Just { first = lFirst, rest = lRest }, r = Just { first = rFirst, rest = rRest} } ->
+        { l = Just { first = lFirst, rest = lRest }, r = Just { first = rFirst, rest = rRest } } ->
             if lFirst == rFirst then
                 findCommonPrefix (count + 1) lRest rRest
 
@@ -537,21 +549,21 @@ prettifyError error =
             Report.create
                 "NOTHING TO FORMAT"
                 Nothing
-                ( PP.words "I can't seem to find any files in this project."
+                (PP.words "I can't seem to find any files in this project."
                 )
 
         ParseFailure { path, error = message } ->
             Report.create
                 "FAILED TO PARSE"
                 (Just path)
-                ( PP.verticalBlock (Array.map PP.text (String.split "\n" message))
+                (PP.verticalBlock (Array.map PP.text (String.split "\n" message))
                 )
 
         PrettyPrintFailure { path, error = message } ->
             Report.create
-                ("Could not format this file. Please report this 'gren format' bug.")
+                "Could not format this file. Please report this 'gren format' bug."
                 (Just path)
-                ( PP.verticalBlock (Array.map PP.text (String.split "\n" message))
+                (PP.verticalBlock (Array.map PP.text (String.split "\n" message))
                 )
 
         OverwriteFailure { path, error = message } ->
@@ -564,7 +576,7 @@ prettifyError error =
             Report.create
                 "AST MISMATCH AFTER FORMATTING"
                 (Just path)
-                ( PP.verticalBlock
+                (PP.verticalBlock
                     [ PP.words "The formatter produced output that does not have the same AST as the original. This is a bug in 'gren format'."
                     , PP.empty
                     , PP.words explanation
@@ -575,7 +587,7 @@ prettifyError error =
             Report.create
                 "FORMATTER NOT IDEMPOTENT"
                 (Just path)
-                ( PP.verticalBlock
+                (PP.verticalBlock
                     [ PP.words "Formatting the file twice produced different output. This is a bug in 'gren format'."
                     , PP.empty
                     , PP.verticalBlock (Array.map PP.text (String.split "\n" diff))
@@ -592,5 +604,5 @@ prettifyError error =
             Report.create
                 "COULD NOT PARSE FORMATTED OUTPUT"
                 (Just path)
-                ( PP.verticalBlock (Array.map PP.text (String.split "\n" message))
+                (PP.verticalBlock (Array.map PP.text (String.split "\n" message))
                 )

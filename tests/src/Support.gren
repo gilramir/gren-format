@@ -1,20 +1,20 @@
 module Support exposing
     ( Perms
     , RunResult
-    , runApp
-    , locateApp
+    , Scratch
+    , dirtyHello
     , expectContains
+    , expectJsonArray
     , expectJsonHasFields
     , expectJsonValid
-    , expectJsonArray
-    , writeText
-    , makeProject
-    , Scratch
-    , makeScratch
-    , removeScratch
     , helloFixture
-    , dirtyHello
+    , locateApp
+    , makeProject
+    , makeScratch
     , readBack
+    , removeScratch
+    , runApp
+    , writeText
     )
 
 {-| Shared helpers for the gren-format CLI test suites: spawning the built
@@ -89,7 +89,6 @@ locateApp perms =
         |> Task.mapError (\e -> "could not locate gren-format app (build it first?): " ++ Debug.toString e)
 
 
-
 -- FIXTURES
 
 
@@ -108,7 +107,6 @@ against, to see it get formatted in place. -}
 dirtyHello : String
 dirtyHello =
     "module Hello exposing (x)\nx : Int\nx =\n    1\n"
-
 
 
 -- ASSERTIONS
@@ -167,7 +165,6 @@ expectJsonArray out =
             Expect.fail ("expected a JSON array: " ++ Decode.errorToString e)
 
 
-
 -- FILESYSTEM PROVISIONING
 
 
@@ -221,15 +218,14 @@ makeProject perms dir helloContents =
 minimalGrenJson : String
 minimalGrenJson =
     """
-{
-    "type": "application",
-    "platform": "node",
-    "source-directories": [ "src" ],
-    "gren-version": "0.6.5",
-    "dependencies": { "direct": {}, "indirect": {} }
-}
-"""
-
+    {
+        \"type\": \"application\",
+        \"platform\": \"node\",
+        \"source-directories\": [ \"src\" ],
+        \"gren-version\": \"0.6.5\",
+        \"dependencies\": { \"direct\": {}, \"indirect\": {} }
+    }
+    """
 
 
 -- INTERNAL

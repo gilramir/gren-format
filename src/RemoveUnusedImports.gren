@@ -1,6 +1,5 @@
 module RemoveUnusedImports exposing (removeUnusedImports)
 
-
 import Array.Builder as Builder
 import Compiler.Ast.Source as Src
 import Compiler.Parse.Context as Ctx
@@ -87,15 +86,14 @@ removeUnusedImports modAst ctx =
         shifted =
             ShiftPositions.shiftDeclarations totalDelta modAst
     in
-    { module_ =
-        { modAst
-            | imports = newImports
-            , values = shifted.values
-            , unions = shifted.unions
-            , aliases = shifted.aliases
-            , effects = shifted.effects
-            , binops = shifted.binops
-        }
+    { module_ = { modAst
+                    | imports = newImports
+                    , values = shifted.values
+                    , unions = shifted.unions
+                    , aliases = shifted.aliases
+                    , effects = shifted.effects
+                    , binops = shifted.binops
+                }
     , context = { ctx | comments = Builder.fromArray newComments }
     }
 
@@ -108,7 +106,6 @@ compareCommentPosition a b =
 
         other ->
             other
-
 
 -- IMPORT CLASSIFICATION
 --
@@ -141,7 +138,7 @@ deltaAtRow cuts row =
         )
         0
         cuts
-    )
+     )
 
 
 type alias ScanState =
@@ -327,7 +324,6 @@ commentIsInsideAny removedImports locComment =
         )
         removedImports
 
-
 -- EXPOSING LIST TRIMMING
 --
 -- A kept import can still carry exposed names nothing in the file uses --
@@ -366,8 +362,11 @@ importIsUsed refs import_ =
     let
         qualifier =
             when import_.alias is
-                Just alias_ -> alias_
-                Nothing -> import_.module_.value
+                Just alias_ ->
+                    alias_
+
+                Nothing ->
+                    import_.module_.value
     in
     when import_.expose is
         Src.Open ->
@@ -399,7 +398,6 @@ exposedIsUsed refs exposed =
 
         Src.ExposedOperator locOp ->
             Array.member locOp.value refs.operators
-
 
 -- REFERENCE COLLECTION
 --
@@ -447,8 +445,11 @@ refsFromValue value =
 
         sigRefs =
             when value.signature is
-                Nothing -> emptyRefs
-                Just { type_ } -> refsFromType type_
+                Nothing ->
+                    emptyRefs
+
+                Just { type_ } ->
+                    refsFromType type_
     in
     argRefs
         |> mergeRefs (refsFromExpression value.body)
@@ -468,10 +469,10 @@ refsFromExpression expr =
             emptyRefs
 
         Src.Var { name } ->
-            { emptyRefs | names = [name] }
+            { emptyRefs | names = [ name ] }
 
         Src.VarQual { qualifier } ->
-            { emptyRefs | qualifiers = [qualifier] }
+            { emptyRefs | qualifiers = [ qualifier ] }
 
         Src.ArrayLiteral exprs ->
             Array.foldl (\e acc -> mergeRefs acc (refsFromExpression e)) emptyRefs exprs
@@ -486,14 +487,14 @@ refsFromExpression expr =
                 newValues
 
         Src.Operator op ->
-            { emptyRefs | operators = [op] }
+            { emptyRefs | operators = [ op ] }
 
         Src.Negate e ->
             refsFromExpression e
 
         Src.Binops { left, operator, right } ->
             refsFromExpression left
-                |> mergeRefs { emptyRefs | operators = [operator.value] }
+                |> mergeRefs { emptyRefs | operators = [ operator.value ] }
                 |> mergeRefs (refsFromExpression right)
 
         Src.Lambda { patterns, body } ->
@@ -548,8 +549,11 @@ refsFromDef def =
 
                 sigRefs =
                     when typeSignature is
-                        Nothing -> emptyRefs
-                        Just typ -> refsFromType typ
+                        Nothing ->
+                            emptyRefs
+
+                        Just typ ->
+                            refsFromType typ
             in
             argRefs
                 |> mergeRefs (refsFromExpression body)
@@ -575,10 +579,10 @@ refsFromPattern pat =
             refsFromPattern pattern
 
         Src.PCtor { name } ->
-            { emptyRefs | names = [name.value] }
+            { emptyRefs | names = [ name.value ] }
 
         Src.PCtorQual { module_ } ->
-            { emptyRefs | qualifiers = [module_] }
+            { emptyRefs | qualifiers = [ module_ ] }
 
         Src.PArray pats ->
             Array.foldl (\p acc -> mergeRefs acc (refsFromPattern p)) emptyRefs pats
@@ -603,10 +607,10 @@ refsFromType typ =
             emptyRefs
 
         Src.TType { name, args } ->
-            Array.foldl (\a acc -> mergeRefs acc (refsFromType a)) { emptyRefs | names = [name.value] } args
+            Array.foldl (\a acc -> mergeRefs acc (refsFromType a)) { emptyRefs | names = [ name.value ] } args
 
         Src.TTypeQual { qualifier, args } ->
-            Array.foldl (\a acc -> mergeRefs acc (refsFromType a)) { emptyRefs | qualifiers = [qualifier] } args
+            Array.foldl (\a acc -> mergeRefs acc (refsFromType a)) { emptyRefs | qualifiers = [ qualifier ] } args
 
         Src.TRecord { fields } ->
             Array.foldl (\f acc -> mergeRefs acc (refsFromType f.signature)) emptyRefs fields
@@ -625,8 +629,11 @@ refsFromUnion union =
     Array.foldl
         (\locVariant acc ->
             when locVariant.value.payload is
-                Nothing -> acc
-                Just typ -> mergeRefs acc (refsFromType typ)
+                Nothing ->
+                    acc
+
+                Just typ ->
+                    mergeRefs acc (refsFromType typ)
         )
         emptyRefs
         union.variants

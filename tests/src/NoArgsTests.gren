@@ -8,9 +8,9 @@ module NoArgsTests exposing (noArgsSuite)
 
 import Expect
 import FileSystem.Path as Path
+import Support exposing (Perms, makeScratch, removeScratch)
 import Task
 import Test.Runner.UnitNode as U
-import Support exposing (Perms, makeScratch, removeScratch)
 
 
 {-| -}
@@ -22,27 +22,28 @@ noArgsSuite perms =
         , tearDownSuite = U.noTearDown
         , setUp = makeScratch perms
         , tearDown = removeScratch perms
-        , tests =
-            [ U.test "no gren.json exits nonzero with helpful message" <| \s ->
-                Support.runApp perms s.appPath { cwd = Just (Path.toPosixString s.dir) } []
-                    |> Task.map
-                        (\r ->
-                            Expect.all
-                                [ \_ -> Expect.notEqual 0 r.exitCode
-                                , \_ -> Support.expectContains "Could not find a gren.json" r.stderr
-                                ]
-                                {}
-                        )
-            , U.test "help flag lists --show and --lpt" <| \s ->
-                Support.runApp perms s.appPath { cwd = Nothing } [ "--help" ]
-                    |> Task.map
-                        (\r ->
-                            Expect.all
-                                [ \_ -> Expect.equal 0 r.exitCode
-                                , \_ -> Support.expectContains "--show" r.stdout
-                                , \_ -> Support.expectContains "--lpt" r.stdout
-                                ]
-                                {}
-                        )
-            ]
+        , tests = [ U.test "no gren.json exits nonzero with helpful message" <|
+                        \s ->
+                            Support.runApp perms s.appPath { cwd = Just (Path.toPosixString s.dir) } []
+                                |> Task.map
+                                    (\r ->
+                                        Expect.all
+                                            [ \_ -> Expect.notEqual 0 r.exitCode
+                                            , \_ -> Support.expectContains "Could not find a gren.json" r.stderr
+                                            ]
+                                            {}
+                                    )
+                  , U.test "help flag lists --show and --lpt" <|
+                        \s ->
+                            Support.runApp perms s.appPath { cwd = Nothing } [ "--help" ]
+                                |> Task.map
+                                    (\r ->
+                                        Expect.all
+                                            [ \_ -> Expect.equal 0 r.exitCode
+                                            , \_ -> Support.expectContains "--show" r.stdout
+                                            , \_ -> Support.expectContains "--lpt" r.stdout
+                                            ]
+                                            {}
+                                    )
+                  ]
         }

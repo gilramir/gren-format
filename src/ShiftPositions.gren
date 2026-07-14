@@ -1,9 +1,9 @@
 module ShiftPositions exposing
-    ( shiftPosition
-    , shiftLocated
-    , shiftRegion
+    ( shiftDeclarations
     , shiftImport
-    , shiftDeclarations
+    , shiftLocated
+    , shiftPosition
+    , shiftRegion
     )
 
 {-| Add a constant row delta to every source position in a parsed module's
@@ -50,7 +50,6 @@ shiftRegion delta reg =
     }
 
 
-
 -- IMPORTS
 
 
@@ -95,7 +94,6 @@ shiftExposed delta exposed =
             Src.ExposedOperator (shiftLocated delta locOp)
 
 
-
 -- DECLARATIONS
 
 
@@ -124,12 +122,13 @@ positions, so a wrong shift here wouldn't fail AST-equivalence). -}
 shiftDeclarations :
     Int
     -> Src.Module
-    -> { values : Array (Src.ModuleDeclaration Src.Value)
-       , unions : Array (Src.ModuleDeclaration Src.Union)
-       , aliases : Array (Src.ModuleDeclaration Src.Alias)
-       , effects : Src.Effects
-       , binops : Array (SP.Located Src.Infix)
-       }
+    ->
+        { values : Array (Src.ModuleDeclaration Src.Value)
+        , unions : Array (Src.ModuleDeclaration Src.Union)
+        , aliases : Array (Src.ModuleDeclaration Src.Alias)
+        , effects : Src.Effects
+        , binops : Array (SP.Located Src.Infix)
+        }
 shiftDeclarations delta modAst =
     { values = Array.map (shiftModuleDeclaration delta shiftValue) modAst.values
     , unions = Array.map (shiftModuleDeclaration delta shiftUnion) modAst.unions
@@ -228,7 +227,6 @@ shiftEffects delta effects =
             Src.Manager manager
 
 
-
 -- TYPES
 
 
@@ -272,7 +270,6 @@ shiftTRecordField delta trField =
         | field = shiftLocated delta trField.field
         , signature = shiftType delta trField.signature
     }
-
 
 
 -- PATTERNS
@@ -327,7 +324,6 @@ shiftPRecordField delta f =
         | field = shiftLocated delta f.field
         , pattern = Maybe.map (shiftPattern delta) f.pattern
     }
-
 
 
 -- EXPRESSIONS

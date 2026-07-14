@@ -1,4 +1,4 @@
-module Main exposing ( main )
+module Main exposing (main)
 
 {-| CLI integration tests for the `gren-format` binary — a Gren port of the old
 `test_cli.py`, built on `gilramir/gren-unit-node`.
@@ -21,14 +21,14 @@ cleaned up even when a test fails). Run it like the unittest CLI:
 import ChildProcess
 import FileSystem
 import Init
-import Node
-import Test.Runner.UnitNode as U
-import NoArgsTests exposing (noArgsSuite)
-import ShowFlagTests exposing (showFlagSuite)
 import JsonFlagsTests exposing (jsonFlagsSuite)
-import PositionalTests exposing (positionalSuite)
 import NoArgsFormatTests exposing (noArgsFormatSuite)
+import NoArgsTests exposing (noArgsSuite)
+import Node
+import PositionalTests exposing (positionalSuite)
 import RemoveUnusedImportsTests exposing (removeUnusedImportsFlagSuite)
+import ShowFlagTests exposing (showFlagSuite)
+import Test.Runner.UnitNode as U
 
 
 main : Node.SimpleProgram a
@@ -36,20 +36,20 @@ main =
     U.runWith
         { name = "gren-format-cli-tests"
         , version = "1.0.0"
-        , init =
-            \done ->
-                Init.await FileSystem.initialize <| \fs ->
-                Init.await ChildProcess.initialize <| \cp ->
-                    done { fs = fs, childProcess = cp }
+        , init = \done ->
+            Init.await FileSystem.initialize <|
+                \fs ->
+                    Init.await ChildProcess.initialize <|
+                        \cp ->
+                            done { fs = fs, childProcess = cp }
         , globalSetUp = U.noFixture
         , globalTearDown = U.noTearDown
-        , suites =
-            \perms ->
-                [ noArgsSuite perms
-                , showFlagSuite perms
-                , jsonFlagsSuite perms
-                , positionalSuite perms
-                , noArgsFormatSuite perms
-                , removeUnusedImportsFlagSuite perms
-                ]
+        , suites = \perms ->
+            [ noArgsSuite perms
+            , showFlagSuite perms
+            , jsonFlagsSuite perms
+            , positionalSuite perms
+            , noArgsFormatSuite perms
+            , removeUnusedImportsFlagSuite perms
+            ]
         }

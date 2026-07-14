@@ -19,9 +19,9 @@ output must match `<Name>.formatted.gren` byte-for-byte.
 
 import Expect
 import FileSystem.Path as Path
+import Support exposing (Perms, Scratch)
 import Task
 import Test.Runner.UnitNode as U
-import Support exposing (Perms, Scratch)
 
 
 {-| -}
@@ -33,34 +33,46 @@ removeUnusedImportsFlagSuite perms =
         , tearDownSuite = U.noTearDown
         , setUp = Support.makeScratch perms
         , tearDown = Support.removeScratch perms
-        , tests =
-            [ U.test "plain removal closes the gap so the surrounding imports sort together" <| \s ->
-                expectRemoveUnusedImports perms s "PlainRemoval"
-            , U.test "a leading line comment survives as a placeholder instead of being orphaned" <| \s ->
-                expectRemoveUnusedImports perms s "LineComment"
-            , U.test "a leading block comment gets the same placeholder treatment as a line comment" <| \s ->
-                expectRemoveUnusedImports perms s "BlockComment"
-            , U.test "the placeholder for an aliased import includes the alias" <| \s ->
-                expectRemoveUnusedImports perms s "Aliased"
-            , U.test "a placeholder is still an own-line comment, so it keeps the imports on either side of it in separate sort groups" <| \s ->
-                expectRemoveUnusedImports perms s "GroupsSeparate"
-            , U.test "an effect module's `where { ... }` header positions survive the shift untouched" <| \s ->
-                expectRemoveUnusedImports perms s "EffectModule"
-            , U.test "a per-declaration doc comment after the cut is shifted along with its declaration" <| \s ->
-                expectRemoveUnusedImports perms s "DeclarationDocComment"
-            , U.test "an exposed Type(..) is kept even when the type name itself is never referenced" <| \s ->
-                expectRemoveUnusedImports perms s "OpenType"
-            , U.test "an unused name is dropped from a kept import's exposing list, while an import whose every exposed name is unused is removed entirely" <| \s ->
-                expectRemoveUnusedImports perms s "PartialExposingTrim"
-            , U.test "nested lambda/when/let content after the cut is shifted correctly" <| \s ->
-                expectRemoveUnusedImports perms s "NestedContent"
-            , U.test "an import-level `exposing (..)` is kept even though nothing in the file references it, unlike a same-looking unused explicit import" <| \s ->
-                expectRemoveUnusedImports perms s "OpenImportExposing"
-            , U.test "a bare exposed type name (no `(..)`) follows the same used/unused rule as any other exposed name" <| \s ->
-                expectRemoveUnusedImports perms s "BareExposedType"
-            , U.test "an exposed operator follows the same used/unused rule as any other exposed name" <| \s ->
-                expectRemoveUnusedImports perms s "ExposedOperator"
-            ]
+        , tests = [ U.test "plain removal closes the gap so the surrounding imports sort together" <|
+                        \s ->
+                            expectRemoveUnusedImports perms s "PlainRemoval"
+                  , U.test "a leading line comment survives as a placeholder instead of being orphaned" <|
+                        \s ->
+                            expectRemoveUnusedImports perms s "LineComment"
+                  , U.test "a leading block comment gets the same placeholder treatment as a line comment" <|
+                        \s ->
+                            expectRemoveUnusedImports perms s "BlockComment"
+                  , U.test "the placeholder for an aliased import includes the alias" <|
+                        \s ->
+                            expectRemoveUnusedImports perms s "Aliased"
+                  , U.test "a placeholder is still an own-line comment, so it keeps the imports on either side of it in separate sort groups" <|
+                        \s ->
+                            expectRemoveUnusedImports perms s "GroupsSeparate"
+                  , U.test "an effect module's `where { ... }` header positions survive the shift untouched" <|
+                        \s ->
+                            expectRemoveUnusedImports perms s "EffectModule"
+                  , U.test "a per-declaration doc comment after the cut is shifted along with its declaration" <|
+                        \s ->
+                            expectRemoveUnusedImports perms s "DeclarationDocComment"
+                  , U.test "an exposed Type(..) is kept even when the type name itself is never referenced" <|
+                        \s ->
+                            expectRemoveUnusedImports perms s "OpenType"
+                  , U.test "an unused name is dropped from a kept import's exposing list, while an import whose every exposed name is unused is removed entirely" <|
+                        \s ->
+                            expectRemoveUnusedImports perms s "PartialExposingTrim"
+                  , U.test "nested lambda/when/let content after the cut is shifted correctly" <|
+                        \s ->
+                            expectRemoveUnusedImports perms s "NestedContent"
+                  , U.test "an import-level `exposing (..)` is kept even though nothing in the file references it, unlike a same-looking unused explicit import" <|
+                        \s ->
+                            expectRemoveUnusedImports perms s "OpenImportExposing"
+                  , U.test "a bare exposed type name (no `(..)`) follows the same used/unused rule as any other exposed name" <|
+                        \s ->
+                            expectRemoveUnusedImports perms s "BareExposedType"
+                  , U.test "an exposed operator follows the same used/unused rule as any other exposed name" <|
+                        \s ->
+                            expectRemoveUnusedImports perms s "ExposedOperator"
+                  ]
         }
 
 

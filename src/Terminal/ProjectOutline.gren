@@ -1,8 +1,8 @@
 module Terminal.ProjectOutline exposing
-    ( ReadProjectOutlineError (..)
-    , readProjectOutline
-    , prettifyProjectOutlineError
+    ( ReadProjectOutlineError(..)
     , outlineFindSourcesErrorToString
+    , prettifyProjectOutlineError
+    , readProjectOutline
     )
 
 {-| The slice of the compiler's `Terminal.PackageInstall` that the formatter
@@ -11,13 +11,13 @@ the related errors. Extracted here so `gren-format` doesn't depend on the whole
 package-install machinery.
 -}
 
-import Compiler.Paths
+import Cli.PrettyPrinter as PP
+import Cli.Report as Report exposing (Report)
 import Compiler.Outline as Outline exposing (Outline)
+import Compiler.Paths
 import FileSystem
 import FileSystem.Path as Path exposing (Path)
 import Json.Decode as Decode
-import Cli.PrettyPrinter as PP
-import Cli.Report as Report exposing (Report)
 import Task exposing (Task)
 
 
