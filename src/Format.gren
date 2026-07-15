@@ -1,6 +1,7 @@
 module Format exposing
     ( Config
     , Error(..)
+    , auditPredicatesFile
     , boxFile
     , expandPathToFiles
     , formatFile
@@ -28,6 +29,7 @@ import Compiler.Parse.Context.Json as ContextJson
 import Compiler.Parse.Module as PM
 import FileSystem
 import FileSystem.Path as Path exposing (Path)
+import Formatter.Audit.PredicateAgreement as PredicateAgreement
 import Formatter.Logical exposing (makeLogicalPrintingTree)
 import Formatter.Logical.LPTJson as LPTJson
 import Formatter.Render exposing (lptToBoxJson, makePrettyResult)
@@ -469,6 +471,31 @@ lptFile { stdout, fsPermission } path =
 
                             Ok lpt ->
                                 Stream.Log.line stdout (LPTJson.lptToJson lpt)
+            )
+
+
+{-| Print the predicate/renderer disagreements in one file as JSON. Each entry is
+a layout predicate that promised a hard break the renderer did not emit -- a
+class of bug every other check is blind to, because the resulting output is
+still deterministic, AST-equivalent and idempotent.
+-}
+auditPredicatesFile : { stdout : Stream.Writable Bytes, fsPermission : FileSystem.Permission } -> Path -> Task Error {}
+auditPredicatesFile { stdout, fsPermission } path =
+    readSource fsPermission path
+        |> Task.andThen
+            (\source ->
+                when parseModule ParseFailure path source is
+                    Err err ->
+                        Task.fail err
+
+                    Ok { ast, payload } ->
+                        when makeLogicalPrintingTree ast payload is
+                            Err errString ->
+                                Task.fail (PrettyPrintFailure { path = path, error = errString })
+
+                            Ok lpt ->
+                                Stream.Log.line stdout
+                                    (PredicateAgreement.findingsToJson (PredicateAgreement.auditLpt lpt))
             )
 
 

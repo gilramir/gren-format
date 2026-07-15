@@ -34,6 +34,7 @@ type alias FormatFlags =
     , postContext : Maybe Path
     , lpt : Maybe Path
     , box : Maybe Path
+    , auditPredicates : Maybe Path
     }
 
 
@@ -51,7 +52,7 @@ command =
         , help = "Gren source file or directory to pretty-print in place"
         }
     , flags = AP.initFlags
-        (\removeUnusedImports show preAst preContext postAst postContext lpt box ->
+        (\removeUnusedImports show preAst preContext postAst postContext lpt box auditPredicates ->
             { files = []
             , removeUnusedImports = removeUnusedImports
             , show = show
@@ -61,6 +62,7 @@ command =
             , postContext = postContext
             , lpt = lpt
             , box = box
+            , auditPredicates = auditPredicates
             }
         )
         |> AP.toggle (AP.LongOnly "remove-unused-imports") "Remove unused imports while formatting"
@@ -71,6 +73,7 @@ command =
         |> AP.flag (AP.LongOnly "post-context") AP.pathParser "Parse and format a file, verify the ASTs match, then print the formatted file's parse Context as JSON to stdout"
         |> AP.flag (AP.LongOnly "lpt") AP.pathParser "Parse a single file and print its Logical Printing Tree as JSON to stdout"
         |> AP.flag (AP.LongOnly "box") AP.pathParser "Parse a single file and print the Box render tree as JSON to stdout"
+        |> AP.flag (AP.LongOnly "audit-predicates") AP.pathParser "Parse a single file and print, as JSON, every layout predicate that claims a hard break the renderer does not emit"
     , commonDescription = Nothing
     , summary = "Format Gren source code."
     , example = PP.empty
@@ -126,6 +129,7 @@ onCommand env context flags =
                     || flags.postContext /= Nothing
                     || flags.lpt /= Nothing
                     || flags.box /= Nothing
+                    || flags.auditPredicates /= Nothing
         in
         if anyFlagSet then
             Task.fail (Program.ExitMessage "Cannot combine file path arguments with flags. Use --help for options.")
@@ -163,6 +167,7 @@ onCommand env context flags =
                     , Maybe.map (Format.postContextFile fileConfig) flags.postContext
                     , Maybe.map (Format.lptFile fileConfig) flags.lpt
                     , Maybe.map (Format.boxFile fileConfig) flags.box
+                    , Maybe.map (Format.auditPredicatesFile fileConfig) flags.auditPredicates
                     ]
         in
         when singleFileOp is

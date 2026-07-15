@@ -65,6 +65,7 @@ order:
 | `postContext` | `--post-context <path>` | Format, verify ASTs match, print just the formatted file's parse `Context` as JSON |
 | `lpt` | `--lpt <path>` | Print the Logical Printing Tree as JSON |
 | `box` | `--box <path>` | Print the `Box` render tree as JSON |
+| `auditPredicates` | `--audit-predicates <path>` | Print, as JSON, every layout predicate claiming a hard break the renderer does not emit (see `gren-format-lib/tests/audit-predicates.py`) |
 
 ### `Format.gren`
 
