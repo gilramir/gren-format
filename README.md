@@ -103,6 +103,24 @@ exposed name that itself fails the "used anywhere" check is dropped even
 though the import survives — `import Dict exposing (get, insert)` becomes
 `import Dict exposing (get)` when only `get` is referenced.
 
+A trailing comment on the *same source line* as a name being trimmed is
+treated as attached to that name, and is removed along with it — the same
+rule as a whole removed import's own trailing comment:
+
+| Before | After |
+|---|---|
+| `import Basics exposing`<br>`( max`<br>`, min -- unused but has a note`<br>`)` | `import Basics exposing (max)` |
+
+A comment on its *own line* near a trimmed name is left exactly where it
+is, even though the name it may have been about is now gone — there's no
+way to know whether an own-line comment was about the name below it, the
+name above it, or something else entirely, so nothing here risks deleting
+a comment that wasn't actually about the trimmed name:
+
+| Before | After |
+|---|---|
+| `import Dict exposing`<br>`( get`<br>`-- keep this comment, it's important`<br>`, insert`<br>`)` | `import Dict exposing`<br>`( get`<br>`-- keep this comment, it's important`<br>`)` |
+
 When an import is removed, any comments whose start line falls within
 that import's source line range are removed with it. Comments elsewhere
 (between imports, before or after the import block) are preserved. A

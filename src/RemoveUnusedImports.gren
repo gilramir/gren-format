@@ -24,7 +24,13 @@ so it's always kept.
 
 A kept import's exposing list is still trimmed name-by-name: any exposed
 name that fails that same "used anywhere" check is dropped from the list
-even though the import itself survives (see `trimExposing`).
+even though the import itself survives (see `trimExposing`). A comment
+trailing a dropped name on that name's own source row is attached to it —
+same rule as a trailing comment on a whole removed import — and is dropped
+along with it. A comment on its own line (before or after the name, on a
+different row) is not touched; it wasn't written on the name's line, so
+nothing here can say it belongs to that name rather than to something
+else nearby.
 
 Comments whose start row falls within a removed import's row range are
 also removed — a comment trailing the import on its own line, or nested
@@ -63,6 +69,7 @@ removeUnusedImports modAst ctx =
         survivingComments =
             comments
                 |> Array.keepIf (\c -> not (commentIsInsideAny scan.removedImports c))
+                |> Array.keepIf (\c -> not (Array.member c.start.row scan.trimmedExposedRows))
                 |> Array.map (\c -> ShiftPositions.shiftLocated (deltaAt c.start.row) c)
 
         -- Each placeholder is built at its import's ORIGINAL (unshifted)
@@ -149,6 +156,7 @@ type alias ScanState =
     , removedImports : Array (Located Src.Import)
     , cuts : Array Cut
     , placeholders : Array (Located Ctx.Comment)
+    , trimmedExposedRows : Array Int
     }
 
 
@@ -177,6 +185,7 @@ initScanState =
     , removedImports = []
     , cuts = []
     , placeholders = []
+    , trimmedExposedRows = []
     }
 
 
@@ -270,7 +279,15 @@ classifyStep refs item state =
                     }
             in
             if used then
-                withReset { state | keptImports = Array.pushLast (trimExposing refs locImport) state.keptImports }
+                let
+                    trimmed =
+                        trimExposing refs locImport
+                in
+                withReset
+                    { state
+                        | keptImports = Array.pushLast trimmed.import_ state.keptImports
+                        , trimmedExposedRows = state.trimmedExposedRows ++ trimmed.droppedExposedRows
+                    }
 
             else if not hasLeadingRun then
                 withReset
@@ -334,13 +351,16 @@ commentIsInsideAny removedImports locComment =
 -- renders an import with no exposed names as a bare `import Foo` (no
 -- `exposing` clause at all).
 --
--- A comment that was attached inside the exposing list to one of the
--- trimmed-away names is not removed -- unlike whole-import removal, kept
--- imports don't filter `ctx.comments` at all, so that comment survives and
--- reattaches to whatever ends up nearest it after the sort/shift passes.
+-- A trailing comment on the same source row as a trimmed-away name is
+-- attached to that name -- the only thing else on the row -- and is dropped
+-- with it (see `trimmedExposedRows` in `removeUnusedImports`). A comment on
+-- its own row (before or after the name) is left alone; nothing here can
+-- say which nearby name it belongs to once the name it may have been about
+-- is gone, so it survives rather than risk deleting a comment about
+-- something else.
 
 
-trimExposing : Refs -> Located Src.Import -> Located Src.Import
+trimExposing : Refs -> Located Src.Import -> { import_ : Located Src.Import, droppedExposedRows : Array Int }
 trimExposing refs locImport =
     let
         import_ =
@@ -348,10 +368,34 @@ trimExposing refs locImport =
     in
     when import_.expose is
         Src.Open ->
-            locImport
+            { import_ = locImport, droppedExposedRows = [] }
 
         Src.Explicit exposed ->
-            { locImport | value = { import_ | expose = Src.Explicit (Array.keepIf (exposedIsUsed refs) exposed) } }
+            let
+                dropped =
+                    Array.keepIf (\e -> not (exposedIsUsed refs e)) exposed
+
+                kept =
+                    Array.keepIf (exposedIsUsed refs) exposed
+            in
+            { import_ = { locImport | value = { import_ | expose = Src.Explicit kept } }
+            , droppedExposedRows = Array.map exposedRow dropped
+            }
+
+
+-- The source row an `Exposed` entry's name starts on -- used to find a
+-- trailing comment on that same row when the entry is dropped.
+exposedRow : Src.Exposed -> Int
+exposedRow exposed =
+    when exposed is
+        Src.ExposedLower locName ->
+            locName.start.row
+
+        Src.ExposedUpper { name } ->
+            name.start.row
+
+        Src.ExposedOperator locOp ->
+            locOp.start.row
 
 
 -- IMPORT USAGE CHECK

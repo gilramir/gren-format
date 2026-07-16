@@ -1,0 +1,12 @@
+module TrimmedExposingComments exposing (x)
+
+import Basics exposing (max)
+import Dict exposing
+    ( get
+    -- keep this comment, it's important
+    )
+
+
+x : Dict.Dict String Int -> Maybe Int
+x d =
+    max 1 (get "a" d)

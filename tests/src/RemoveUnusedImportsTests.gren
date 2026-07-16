@@ -8,7 +8,10 @@ directly (no blank line) above it is a special case: rather than orphan
 that comment, the import becomes a single `-- removed import Foo`
 placeholder instead of disappearing outright. An import that's kept because
 some but not all of its exposed names are used still has the unused ones
-dropped from its exposing list.
+dropped from its exposing list — and a comment trailing a dropped name on
+that name's own source row is dropped with it, while a comment on its own
+line survives untouched (nothing here can say which nearby name it was
+about).
 
 Each case is a fixture pair under `testfiles/RemoveUnusedImports/`:
 `<Name>.dirty.gren` is run through `--remove-unused-imports --show`, and the
@@ -72,6 +75,9 @@ removeUnusedImportsFlagSuite perms =
                   , U.test "an exposed operator follows the same used/unused rule as any other exposed name" <|
                         \s ->
                             expectRemoveUnusedImports perms s "ExposedOperator"
+                  , U.test "a trailing comment on a trimmed exposed name's own row is deleted with it, but a leading own-line comment above a trimmed name survives untouched" <|
+                        \s ->
+                            expectRemoveUnusedImports perms s "TrimmedExposingComments"
                   ]
         }
 
