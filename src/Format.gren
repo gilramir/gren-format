@@ -14,6 +14,7 @@ module Format exposing
     , prettifyError
     , run
     , showFile
+    , showOnceFile
     )
 
 import Bytes exposing (Bytes)
@@ -133,6 +134,26 @@ formatAndVerify doRemoveUnusedImports path source =
                 in
                 renderModule path transformed.module_ transformed.context
                     |> Result.andThen (verifyReparse path transformed.module_)
+            )
+
+
+{-| Format once and return the output *without* the reparse/idempotency check —
+i.e. the raw `pretty1` that `formatAndVerify` would compare against `pretty2`.
+Debug aid (behind `--show-once`) for inspecting a non-idempotent first format. -}
+formatOnce : Bool -> Path -> String -> Result Error String
+formatOnce doRemoveUnusedImports path source =
+    parseModule ParseFailure path source
+        |> Result.andThen
+            (\{ ast = ast1, payload = payload1 } ->
+                let
+                    transformed =
+                        if doRemoveUnusedImports then
+                            RUI.removeUnusedImports ast1 payload1
+
+                        else
+                            { module_ = ast1, context = payload1 }
+                in
+                renderModule path transformed.module_ transformed.context
             )
 
 
@@ -338,6 +359,22 @@ showFile { stdout, fsPermission, removeUnusedImports } path =
         |> Task.andThen
             (\source ->
                 when formatAndVerify removeUnusedImports path source is
+                    Err err ->
+                        Task.fail err
+
+                    Ok pretty ->
+                        Stream.Log.line stdout pretty
+            )
+
+
+{-| Like `showFile` but prints the *first* format without the idempotency guard,
+so a non-idempotent first pass can be inspected. Debug aid behind `--show-once`. -}
+showOnceFile : { stdout : Stream.Writable Bytes, fsPermission : FileSystem.Permission, removeUnusedImports : Bool } -> Path -> Task Error {}
+showOnceFile { stdout, fsPermission, removeUnusedImports } path =
+    readSource fsPermission path
+        |> Task.andThen
+            (\source ->
+                when formatOnce removeUnusedImports path source is
                     Err err ->
                         Task.fail err
 
