@@ -28,7 +28,7 @@ type alias FormatFlags =
     { files : Array Path
     , removeUnusedImports : Bool
     , show : Maybe Path
-    , showOnce : Maybe Path
+    , showFirst : Maybe Path
     , preAst : Maybe Path
     , preContext : Maybe Path
     , postAst : Maybe Path
@@ -53,11 +53,11 @@ command =
         , help = "Gren source file or directory to pretty-print in place"
         }
     , flags = AP.initFlags
-        (\removeUnusedImports show showOnce preAst preContext postAst postContext lpt box auditPredicates ->
+        (\removeUnusedImports show showFirst preAst preContext postAst postContext lpt box auditPredicates ->
             { files = []
             , removeUnusedImports = removeUnusedImports
             , show = show
-            , showOnce = showOnce
+            , showFirst = showFirst
             , preAst = preAst
             , preContext = preContext
             , postAst = postAst
@@ -69,7 +69,7 @@ command =
         )
         |> AP.toggle (AP.LongOnly "remove-unused-imports") "Remove unused imports while formatting"
         |> AP.flag (AP.LongOnly "show") AP.pathParser "Parse and pretty-print a single file to stdout without modifying it"
-        |> AP.flag (AP.LongOnly "show-once") AP.pathParser "Like --show but print the FIRST format without the idempotency guard (debug: inspect a non-idempotent first pass)"
+        |> AP.flag (AP.LongOnly "show-first") AP.pathParser "Like --show but print the FIRST format without the idempotency guard (debug: inspect a non-idempotent first pass)"
         |> AP.flag (AP.LongOnly "pre-ast") AP.pathParser "Parse a single file and print its AST as JSON to stdout"
         |> AP.flag (AP.LongOnly "pre-context") AP.pathParser "Parse a single file and print its parse Context (comments) as JSON to stdout"
         |> AP.flag (AP.LongOnly "post-ast") AP.pathParser "Parse and format a file, verify the ASTs match, then print the formatted file's AST as JSON to stdout"
@@ -126,7 +126,7 @@ onCommand env context flags =
         let
             anyFlagSet =
                 flags.show /= Nothing
-                    || flags.showOnce /= Nothing
+                    || flags.showFirst /= Nothing
                     || flags.preAst /= Nothing
                     || flags.preContext /= Nothing
                     || flags.postAst /= Nothing
@@ -165,7 +165,7 @@ onCommand env context flags =
                     )
                     Nothing
                     [ Maybe.map (Format.showFile showConfig) flags.show
-                    , Maybe.map (Format.showOnceFile showConfig) flags.showOnce
+                    , Maybe.map (Format.showFirstFile showConfig) flags.showFirst
                     , Maybe.map (Format.preAstFile fileConfig) flags.preAst
                     , Maybe.map (Format.preContextFile fileConfig) flags.preContext
                     , Maybe.map (Format.postAstFile fileConfig) flags.postAst
