@@ -1,0 +1,8 @@
+module DuplicateExposedNameUsed exposing (x)
+
+import Dict exposing (get, get)
+
+
+x : Dict.Dict String Int -> String -> Maybe Int
+x d k =
+    get k d

@@ -1,0 +1,9 @@
+module DuplicateModuleUsed exposing (x)
+
+import Dict
+import Dict
+
+
+x : Dict.Dict String Int -> Int
+x d =
+    Dict.size d

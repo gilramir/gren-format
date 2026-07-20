@@ -11,7 +11,10 @@ some but not all of its exposed names are used still has the unused ones
 dropped from its exposing list — and a comment trailing a dropped name on
 that name's own source row is dropped with it, while a comment on its own
 line survives untouched (nothing here can say which nearby name it was
-about).
+about). An import duplicated verbatim (same module, alias, and exposing
+list) collapses to its first occurrence if used, or is removed entirely if
+not; the same collapse-to-first-occurrence rule applies to a name repeated
+within a single import's own exposing list.
 
 Each case is a fixture pair under `testfiles/RemoveUnusedImports/`:
 `<Name>.dirty.gren` is run through `--remove-unused-imports --show`, and the
@@ -78,6 +81,18 @@ removeUnusedImportsFlagSuite perms =
                   , U.test "a trailing comment on a trimmed exposed name's own row is deleted with it, but a leading own-line comment above a trimmed name survives untouched" <|
                         \s ->
                             expectRemoveUnusedImports perms s "TrimmedExposingComments"
+                  , U.test "a used import duplicated verbatim collapses to a single instance" <|
+                        \s ->
+                            expectRemoveUnusedImports perms s "DuplicateModuleUsed"
+                  , U.test "an unused import duplicated verbatim has every instance removed" <|
+                        \s ->
+                            expectRemoveUnusedImports perms s "DuplicateModuleUnused"
+                  , U.test "a used name repeated in one import's exposing list collapses to a single instance" <|
+                        \s ->
+                            expectRemoveUnusedImports perms s "DuplicateExposedNameUsed"
+                  , U.test "an unused name repeated in one import's exposing list has every instance removed" <|
+                        \s ->
+                            expectRemoveUnusedImports perms s "DuplicateExposedNameUnused"
                   ]
         }
 

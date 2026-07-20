@@ -1,0 +1,9 @@
+module DuplicateModuleUnused exposing (x)
+
+import Dict
+import Dict
+
+
+x : Int
+x =
+    5

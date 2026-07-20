@@ -1,0 +1,6 @@
+module DuplicateModuleUnused exposing (x)
+
+
+x : Int
+x =
+    5

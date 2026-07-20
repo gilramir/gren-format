@@ -32,6 +32,17 @@ different row) is not touched; it wasn't written on the name's line, so
 nothing here can say it belongs to that name rather than to something
 else nearby.
 
+An import that's an exact duplicate of an earlier import already kept --
+same module, same alias, and the same exposing list, byte-for-byte as
+written -- is treated the same way an unused import is: removed outright,
+or replaced with a placeholder if that would otherwise orphan a leading
+comment. Only the first occurrence survives. Two imports of the same
+module that differ in any way (different alias, different exposing list)
+are judged independently and are never merged. Within a single import's
+own exposing list, a name repeated more than once collapses to its first
+occurrence the same way, once usage has already dropped every unused
+entry.
+
 Comments whose start row falls within a removed import's row range are
 also removed — a comment trailing the import on its own line, or nested
 inside its exposing list. A comment on its own line *directly above* the
@@ -133,6 +144,53 @@ type alias Cut =
     }
 
 
+{-| The content of an import that determines whether it's an exact
+duplicate of another -- position is deliberately excluded, so two imports
+at different rows with the same module/alias/exposing compare equal. -}
+type alias ImportIdentity =
+    { module_ : String
+    , alias : Maybe String
+    , exposed : Array String
+    }
+
+
+importIdentity : Src.Import -> ImportIdentity
+importIdentity import_ =
+    { module_ = import_.module_.value
+    , alias = import_.alias
+    , exposed =
+        when import_.expose is
+            Src.Open ->
+                [ "..open.." ]
+
+            Src.Explicit exposed ->
+                Array.map exposedIdentity exposed
+    }
+
+
+{-| A string identity for one `Exposed` entry -- used both to detect
+duplicate whole imports (`ImportIdentity`) and to dedupe repeated names
+within a single import's own exposing list (`dedupeExposed`). Ignores
+position; a bare name and `Type(..)` are deliberately distinct identities
+since they expose different things. -}
+exposedIdentity : Src.Exposed -> String
+exposedIdentity exposed =
+    when exposed is
+        Src.ExposedLower locName ->
+            "lower:" ++ locName.value
+
+        Src.ExposedUpper { name, privacy } ->
+            when privacy is
+                Src.Public ->
+                    "upper-open:" ++ name.value
+
+                Src.Private ->
+                    "upper:" ++ name.value
+
+        Src.ExposedOperator locOp ->
+            "operator:" ++ locOp.value
+
+
 deltaAtRow : Array Cut -> Int -> Int
 deltaAtRow cuts row =
     -(Array.foldl
@@ -157,6 +215,7 @@ type alias ScanState =
     , cuts : Array Cut
     , placeholders : Array (Located Ctx.Comment)
     , trimmedExposedRows : Array Int
+    , seenIdentities : Array ImportIdentity
     }
 
 
@@ -186,6 +245,7 @@ initScanState =
     , cuts = []
     , placeholders = []
     , trimmedExposedRows = []
+    , seenIdentities = []
     }
 
 
@@ -277,8 +337,14 @@ classifyStep refs item state =
                         , lastRow = locImport.end.row
                         , justSawImportEndingAt = Just locImport.end.row
                     }
+
+                identity =
+                    importIdentity locImport.value
+
+                isDuplicate =
+                    used && Array.member identity state.seenIdentities
             in
-            if used then
+            if used && not isDuplicate then
                 let
                     trimmed =
                         trimExposing refs locImport
@@ -287,6 +353,7 @@ classifyStep refs item state =
                     { state
                         | keptImports = Array.pushLast trimmed.import_ state.keptImports
                         , trimmedExposedRows = state.trimmedExposedRows ++ trimmed.droppedExposedRows
+                        , seenIdentities = Array.pushLast identity state.seenIdentities
                     }
 
             else if not hasLeadingRun then
@@ -358,6 +425,11 @@ commentIsInsideAny removedImports locComment =
 -- say which nearby name it belongs to once the name it may have been about
 -- is gone, so it survives rather than risk deleting a comment about
 -- something else.
+--
+-- A name repeated in the same exposing list (`exposing (get, get)`) is
+-- deduped after the used/unused filter: the first occurrence is kept, any
+-- later occurrence of that same name is dropped exactly like an unused one
+-- (including the same trailing-comment-on-its-row handling).
 
 
 trimExposing : Refs -> Located Src.Import -> { import_ : Located Src.Import, droppedExposedRows : Array Int }
@@ -372,15 +444,40 @@ trimExposing refs locImport =
 
         Src.Explicit exposed ->
             let
-                dropped =
+                unused =
                     Array.keepIf (\e -> not (exposedIsUsed refs e)) exposed
 
-                kept =
+                used =
                     Array.keepIf (exposedIsUsed refs) exposed
+
+                deduped =
+                    dedupeExposed used
             in
-            { import_ = { locImport | value = { import_ | expose = Src.Explicit kept } }
-            , droppedExposedRows = Array.map exposedRow dropped
+            { import_ = { locImport | value = { import_ | expose = Src.Explicit deduped.kept } }
+            , droppedExposedRows = Array.map exposedRow (unused ++ deduped.dropped)
             }
+
+
+dedupeExposed : Array Src.Exposed -> { kept : Array Src.Exposed, dropped : Array Src.Exposed }
+dedupeExposed exposedList =
+    Array.foldl
+        (\e acc ->
+            let
+                identity =
+                    exposedIdentity e
+            in
+            if Array.member identity acc.seenIdentities then
+                { acc | dropped = Array.pushLast e acc.dropped }
+
+            else
+                { acc
+                    | kept = Array.pushLast e acc.kept
+                    , seenIdentities = Array.pushLast identity acc.seenIdentities
+                }
+        )
+        { kept = [], dropped = [], seenIdentities = [] }
+        exposedList
+        |> (\acc -> { kept = acc.kept, dropped = acc.dropped })
 
 
 -- The source row an `Exposed` entry's name starts on -- used to find a
