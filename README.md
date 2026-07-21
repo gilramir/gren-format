@@ -3,18 +3,28 @@
 # gren-format
 
 `gren-format` is a code formatter for the [Gren](https://gren-lang.org)
-programming language. It rewrites Gren source files into one canonical style, so
-code looks the same no matter who wrote it, except that the formatter also
-honors the author's choice of line breaks. The formtting helps diffs stay focused on real
-changes. Run it with no arguments to reformat every source file in your project
-in place, or point it at individual files.
+programming language. It rewrites Gren source files into a canonical style, so
+code looks the same no matter who wrote it. Importantly, the formatter also
+honors the author's choice of line breaks: if the author chose a single-line version
+of an expression, it stays as a single line, but if it's broken up across
+multiple lines, it takes on a canonical multi-line format.
+Following the philosphy of [elf-format](https://github.com/avh4/elm-format)
+and the [Elm Style Guide](https://elm-lang.org/docs/style-guide),
+the format is in a style that helps diffs stay focused on real
+changes. `gren-format`'s output is very similar to that of `elm-format`, but
+not identical.
 
-Formatting is **safe by construction**: before writing anything to disk, the tool
-reparses its own output and verifies that the abstract syntax tree is unchanged
-(so a reformat never alters what your program *means*) and that formatting is
-idempotent (so an already-formatted file is left byte-for-byte untouched). If
-either check ever fails, it reports a bug to the user instead of overwriting the file.
-See [Formatting pipeline](#formatting-pipeline) below for the full sequence.
+This README documents the usage of the tool.  The actual formatting rules
+are documented in the
+[Gren Formatter Library](https://github.com/gilramir/gren-format-lib), the code
+which does the actual formatting and can be used in other Gren programs.
+
+The formatter is super careful when changing your code.
+* It re-parses its output to ensure it didn't change the meaning of your code.
+* It re-formats its output to ensure its own formatting is idempotent,
+  guarding against diffs for no reason.
+
+If either check fails, it reports a bug to the user instead of overwriting the file.
 
 ## Usage
 
@@ -48,30 +58,6 @@ gren-format --remove-unused-imports
 gren-format --remove-unused-imports src/Main.gren
 gren-format --remove-unused-imports --show src/Main.gren
 ```
-
-## Formatting pipeline
-
-Every file goes through a format-and-verify pipeline before anything is
-written to disk. The pipeline runs two full format passes and checks the
-result at each stage to ensure correctness.
-
-### Standard pipeline
-
-![Standard formatting pipeline](docs/diagrams/standard-pipeline.png)
-
-The reparse + AST comparison step ensures the formatter never silently
-changes the meaning of a program. The idempotency check ensures that
-formatting twice produces the same result as formatting once — so a
-file that has already been formatted is left unchanged on future runs.
-
-### Pipeline with `--remove-unused-imports`
-
-When `--remove-unused-imports` is passed, an AST transformation step is
-inserted between parsing and the first format pass. The rest of the
-pipeline is identical, but all comparisons are made against the
-transformed AST rather than the original.
-
-![Formatting pipeline with --remove-unused-imports](docs/diagrams/remove-unused-imports-pipeline.png)
 
 ## Unused import analysis
 
@@ -137,6 +123,31 @@ Assuming `Array` goes unused in each example below:
 | `import Dict`<br>`-- Array is used for buffering`<br>`import Array` | `import Dict`<br>`-- Array is used for buffering`<br>`-- removed import Array` |
 | `-- Module imports below`<br>`import Dict`<br>`import Array` | `-- Module imports below`<br>`import Dict` |
 
+
+## Formatting pipeline
+
+Every file goes through a format-and-verify pipeline before anything is
+written to disk. The pipeline runs two full format passes and checks the
+result at each stage to ensure correctness.
+
+### Standard pipeline
+
+![Standard formatting pipeline](docs/diagrams/standard-pipeline.png)
+
+The reparse + AST comparison step ensures the formatter never silently
+changes the meaning of a program. The idempotency check ensures that
+formatting twice produces the same result as formatting once — so a
+file that has already been formatted is left unchanged on future runs.
+
+### Pipeline with `--remove-unused-imports`
+
+When `--remove-unused-imports` is passed, an AST transformation step is
+inserted between parsing and the first format pass. The rest of the
+pipeline is identical, but all comparisons are made against the
+transformed AST rather than the original.
+
+![Formatting pipeline with --remove-unused-imports](docs/diagrams/remove-unused-imports-pipeline.png)
+
 ## Debug flags
 
 These flags operate on a single file and write to stdout instead of disk:
@@ -147,6 +158,7 @@ These flags operate on a single file and write to stdout instead of disk:
 | `--pre-ast <file>` | Print parsed AST as JSON |
 | `--pre-context <file>` | Print parsed parse Context (comments) as JSON |
 | `--post-ast <file>` | Format, verify ASTs match, print formatted AST as JSON |
+| `--post-context <file>` | Format, print parse Context (comments) as JSON |
 | `--lpt <file>` | Print Logical Printing Tree as JSON |
 | `--box <file>` | Print the `Box` render tree as a JSON |
 
@@ -158,10 +170,10 @@ on the raw AST and do not.
 Found a bug, or have formatting output that looks wrong? Open an issue at
 [github.com/gilramir/gren-format/issues](https://github.com/gilramir/gren-format/issues).
 
-[Discord](https://discord.gg/Chb9YB9Vmh) is the official meeting place for
-people who are curious about Gren. The core team posts development updates
-there at regular intervals, and there are channels for people to ask
-questions.
+Read more about the [Gren Community](https://gren-lang.org/community) and how
+to join the Discord server, the official meeting place for people who
+are curious about Gren. The core team posts development updates there
+at regular intervals, and there are channels for people to ask questions.
 
 ---
 
