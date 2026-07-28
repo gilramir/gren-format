@@ -713,17 +713,17 @@ refsFromPattern pat =
         Src.PVar _ ->
             emptyRefs
 
-        Src.PRecord _ ->
-            emptyRefs
+        Src.PRecord fields ->
+            Array.foldl (\f acc -> mergeRefs acc (refsFromMaybePattern f.pattern)) emptyRefs fields
 
         Src.PAlias { pattern } ->
             refsFromPattern pattern
 
-        Src.PCtor { name } ->
-            { emptyRefs | names = [ name.value ] }
+        Src.PCtor { name, arg } ->
+            mergeRefs { emptyRefs | names = [ name.value ] } (refsFromMaybePattern arg)
 
-        Src.PCtorQual { module_ } ->
-            { emptyRefs | qualifiers = [ module_ ] }
+        Src.PCtorQual { module_, arg } ->
+            mergeRefs { emptyRefs | qualifiers = [ module_ ] } (refsFromMaybePattern arg)
 
         Src.PArray pats ->
             Array.foldl (\p acc -> mergeRefs acc (refsFromPattern p)) emptyRefs pats
@@ -735,6 +735,20 @@ refsFromPattern pat =
             emptyRefs
 
         Src.PInt _ ->
+            emptyRefs
+
+
+{-| A constructor argument (`PCtor`/`PCtorQual`) and a record-pattern field
+(`PRecordField`) can each carry a nested sub-pattern -- `Just (Zebra.Foo n)`,
+`{ thing = Just (Zebra.Foo n) }` -- so a qualifier or name referenced only
+there must still be seen, or its import looks unused and gets deleted. -}
+refsFromMaybePattern : Maybe Src.Pattern -> Refs
+refsFromMaybePattern maybePattern =
+    when maybePattern is
+        Just p ->
+            refsFromPattern p
+
+        Nothing ->
             emptyRefs
 
 

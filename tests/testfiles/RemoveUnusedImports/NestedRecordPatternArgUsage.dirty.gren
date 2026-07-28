@@ -1,0 +1,15 @@
+module NestedRecordPatternArgUsage exposing (x)
+
+import Zebra
+import Kept
+import Extra
+
+
+x : { thing : Maybe Kept.Thing } -> Int
+x wrapped =
+    when wrapped is
+        { thing = Just (Zebra.Foo n) } ->
+            n
+
+        _ ->
+            0

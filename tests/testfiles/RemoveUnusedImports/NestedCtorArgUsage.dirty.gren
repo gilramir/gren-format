@@ -1,0 +1,15 @@
+module NestedCtorArgUsage exposing (x)
+
+import Zebra
+import Kept
+import Extra
+
+
+x : Maybe Kept.Thing -> Int
+x wrapped =
+    when wrapped is
+        Just (Zebra.Foo n) ->
+            n
+
+        Nothing ->
+            0
