@@ -1,0 +1,8 @@
+module RemovedImportExposingComment exposing (x)
+
+import Kept
+
+
+x : Kept.Thing -> Int
+x _ =
+    1

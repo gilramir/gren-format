@@ -96,6 +96,9 @@ removeUnusedImportsFlagSuite perms =
                   , U.test "a trailing comment on a trimmed exposed name's own row is deleted with it, but a leading own-line comment above a trimmed name survives untouched" <|
                         \s ->
                             expectRemoveUnusedImports perms s "TrimmedExposingComments"
+                  , U.test "a comment nested in a wholly removed import's exposing list is deleted along with it" <|
+                        \s ->
+                            expectRemoveUnusedImports perms s "RemovedImportExposingComment"
                   , U.test "two imports of the same module with different aliases are judged independently, not merged" <|
                         \s ->
                             expectRemoveUnusedImports perms s "DifferentAliasIndependent"
