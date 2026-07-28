@@ -1,0 +1,8 @@
+module AliasedUsedWithExposing exposing (x)
+
+import Dict as D exposing (get)
+
+
+x : String -> D.Dict String Int -> Maybe Int
+x k d =
+    get k d
