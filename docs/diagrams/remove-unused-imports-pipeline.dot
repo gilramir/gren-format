@@ -28,11 +28,6 @@ digraph RemoveUnusedImportsPipeline {
     node [shape=box, style="rounded,dashed,filled", fillcolor="#f2f2f2", color="#888888", fontcolor="#333333"];
     continue [label="continue with the standard pipeline\nformat → reparse → compare ASTs → format again → check idempotency → write to disk\n(ASTs are compared against ast1' in place of ast1)"];
 
-    // Explanatory note for the transform step
-    rulesNote [shape=note, style=filled, fillcolor="#fffbe6", color="#c9a227",
-               fontcolor="#4a3b06", fontsize=9,
-               label="qualified imports with no qualified refs → removed\lexplicit-expose imports with no used exposed names\l  and no qualified refs → removed\lopen-expose imports (exposing (..)) → always kept\lcomments inside a removed import → also removed\l"];
-
     // Main flow
     source -> parse;
     parse  -> ast1;
@@ -40,11 +35,8 @@ digraph RemoveUnusedImportsPipeline {
     removeImports -> ast1p;
     ast1p  -> continue;
 
-    removeImports -> rulesNote [style=dotted, arrowhead=none, color="#c9a227", constraint=false];
-
     // Error branch
     parse -> parseFail [style=dashed, color="#c0392b", fontcolor="#7a1f13", label="error"];
 
     { rank=same; ast1; parseFail }
-    { rank=same; ast1p; rulesNote }
 }
