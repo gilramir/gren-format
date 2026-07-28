@@ -87,6 +87,9 @@ removeUnusedImportsFlagSuite perms =
                   , U.test "an unused import duplicated verbatim has every instance removed" <|
                         \s ->
                             expectRemoveUnusedImports perms s "DuplicateModuleUnused"
+                  , U.test "an aliased import is kept when only its alias-qualified name is used, not any exposed name" <|
+                        \s ->
+                            expectRemoveUnusedImports perms s "AliasedUsed"
                   , U.test "a used name repeated in one import's exposing list collapses to a single instance" <|
                         \s ->
                             expectRemoveUnusedImports perms s "DuplicateExposedNameUsed"

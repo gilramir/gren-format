@@ -1,0 +1,9 @@
+module AliasedUsed exposing (x)
+
+import Dict as D
+import Extra
+
+
+x : D.Dict String Int -> Int
+x _ =
+    1
