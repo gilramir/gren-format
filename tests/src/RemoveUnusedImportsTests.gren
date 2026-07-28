@@ -51,6 +51,9 @@ removeUnusedImportsFlagSuite perms =
                   , U.test "a leading block comment gets the same placeholder treatment as a line comment" <|
                         \s ->
                             expectRemoveUnusedImports perms s "BlockComment"
+                  , U.test "a trailing comment on a removed import's own row is deleted with it, not turned into a placeholder" <|
+                        \s ->
+                            expectRemoveUnusedImports perms s "TrailingCommentOnRemovedImport"
                   , U.test "the placeholder for an aliased import includes the alias" <|
                         \s ->
                             expectRemoveUnusedImports perms s "Aliased"

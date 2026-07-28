@@ -1,0 +1,9 @@
+module TrailingCommentOnRemovedImport exposing (x)
+
+import Unused -- deprecated, safe to remove
+import Kept
+
+
+x : Kept.Thing -> Int
+x _ =
+    1
