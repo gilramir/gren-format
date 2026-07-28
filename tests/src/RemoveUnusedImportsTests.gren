@@ -51,6 +51,9 @@ removeUnusedImportsFlagSuite perms =
                   , U.test "the placeholder for an aliased import includes the alias" <|
                         \s ->
                             expectRemoveUnusedImports perms s "Aliased"
+                  , U.test "multiple stacked leading comments all survive, with a single placeholder below the whole run" <|
+                        \s ->
+                            expectRemoveUnusedImports perms s "StackedLeadingComments"
                   , U.test "a placeholder comment travels with the import below it, so the surrounding imports still sort as one run" <|
                         \s ->
                             expectRemoveUnusedImports perms s "GroupsSeparate"

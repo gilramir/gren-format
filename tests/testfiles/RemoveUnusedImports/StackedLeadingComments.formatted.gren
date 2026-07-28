@@ -1,0 +1,11 @@
+module StackedLeadingComments exposing (x)
+
+-- first note
+-- second note
+-- removed import Unused
+import Kept
+
+
+x : Kept.Thing -> Int
+x _ =
+    1
