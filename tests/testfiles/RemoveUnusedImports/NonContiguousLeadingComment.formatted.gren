@@ -1,0 +1,10 @@
+module NonContiguousLeadingComment exposing (x)
+
+-- unrelated note
+
+import Kept
+
+
+x : Kept.Thing -> Int
+x _ =
+    1

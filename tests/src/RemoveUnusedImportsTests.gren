@@ -45,6 +45,9 @@ removeUnusedImportsFlagSuite perms =
                   , U.test "a leading line comment survives as a placeholder instead of being orphaned" <|
                         \s ->
                             expectRemoveUnusedImports perms s "LineComment"
+                  , U.test "a leading comment separated by a blank line is not contiguous, so the removed import leaves no placeholder" <|
+                        \s ->
+                            expectRemoveUnusedImports perms s "NonContiguousLeadingComment"
                   , U.test "a leading block comment gets the same placeholder treatment as a line comment" <|
                         \s ->
                             expectRemoveUnusedImports perms s "BlockComment"
