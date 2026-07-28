@@ -1,0 +1,9 @@
+module DifferentAliasIndependent exposing (x)
+
+import Dict as D1
+import Dict as D2
+
+
+x : D1.Dict String Int -> D2.Dict String Int -> Int
+x _ _ =
+    1
