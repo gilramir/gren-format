@@ -124,61 +124,28 @@ gren-format --remove-unused-imports --show src/Main.gren
 
 ## Unused import analysis
 
-The `--remove-unused-imports` pass scans the module body for three kinds
-of reference:
+`--remove-unused-imports` drops an import if nothing in the module
+references it, and trims an exposing list name by name the same way. It's
+conservative: `exposing (..)` and an exposed `Type(..)` are always kept,
+since there's no way to know what names they bring into scope.
 
-- **Qualified references** — `Dict.get`, `Maybe.Just`, `List.Extra.member`.
-  These carry the module name (or alias) directly in the AST node, so
-  detection is exact.
-
-- **Unqualified references** — bare names like `toUpper`, `Just`, `member`
-  that come from an `exposing (...)` clause. These are detected
-  conservatively: if the name appears anywhere in the module (even if
-  shadowed by a local definition), the import is kept.
-
-- **Operator references** — `+`, `|>`, `==`, etc., whether used inline
-  (`a + b`) or as a value (`(+)`). These are matched against
-  `ExposedOperator` entries in the expose list.
-
-Open-expose imports (`exposing (..)`) are always kept because the pass
-cannot know which names the imported module exports without resolving
-the full module graph. An exposed `Type(..)` is kept for the same reason:
-it brings the type's constructors into scope unqualified, and a bare
-constructor name elsewhere in the file can't be attributed to this import
-versus another module's same-named constructor.
-
-A *kept* import still has its exposing list trimmed name by name: any
-exposed name that itself fails the "used anywhere" check is dropped even
-though the import survives — `import Dict exposing (get, insert)` becomes
-`import Dict exposing (get)` when only `get` is referenced.
-
-A trailing comment on the *same source line* as a name being trimmed is
-treated as attached to that name, and is removed along with it — the same
-rule as a whole removed import's own trailing comment:
+Comments are only ever removed when they're clearly about what's being
+removed. A trailing comment on the same line as a trimmed name goes with it:
 
 | Before | After |
 |---|---|
 | `import Basics exposing`<br>`( max`<br>`, min -- unused but has a note`<br>`)` | `import Basics exposing (max)` |
 
-A comment on its *own line* near a trimmed name is left exactly where it
-is, even though the name it may have been about is now gone — there's no
-way to know whether an own-line comment was about the name below it, the
-name above it, or something else entirely, so nothing here risks deleting
-a comment that wasn't actually about the trimmed name:
+An own-line comment is left in place, even next to a trimmed name — there's
+no way to know which name below or above it a comment was actually about:
 
 | Before | After |
 |---|---|
 | `import Dict exposing`<br>`( get`<br>`-- keep this comment, it's important`<br>`, insert`<br>`)` | `import Dict exposing`<br>`( get`<br>`-- keep this comment, it's important`<br>`)` |
 
-When an import is removed, any comments whose start line falls within
-that import's source line range are removed with it. Comments elsewhere
-(between imports, before or after the import block) are preserved. A
-comment on its own line directly above a removed import is left in place
-and the import is replaced by a `-- removed import Foo` placeholder, so
-the comment is never silently reattached to whatever moves up into the
-gap.
-
-Assuming `Array` goes unused in each example below:
+Removing a whole import removes its trailing comment and any comment inside
+its line range, but leaves an own-line comment directly above it in place,
+with a `-- removed import Foo` placeholder marking what used to be there:
 
 | Before | After |
 |---|---|
