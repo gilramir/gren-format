@@ -1,0 +1,8 @@
+module TrimmedToBareImport exposing (x)
+
+import Dict exposing (get, insert)
+
+
+x : Dict.Dict String Int
+x =
+    Dict.empty

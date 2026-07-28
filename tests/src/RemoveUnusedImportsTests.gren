@@ -69,6 +69,9 @@ removeUnusedImportsFlagSuite perms =
                   , U.test "an unused name is dropped from a kept import's exposing list, while an import whose every exposed name is unused is removed entirely" <|
                         \s ->
                             expectRemoveUnusedImports perms s "PartialExposingTrim"
+                  , U.test "an import kept only by qualified usage has its whole exposing list trimmed away, leaving a bare import" <|
+                        \s ->
+                            expectRemoveUnusedImports perms s "TrimmedToBareImport"
                   , U.test "nested lambda/when/let content after the cut is shifted correctly" <|
                         \s ->
                             expectRemoveUnusedImports perms s "NestedContent"
