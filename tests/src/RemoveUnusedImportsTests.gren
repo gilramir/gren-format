@@ -51,7 +51,7 @@ removeUnusedImportsFlagSuite perms =
                   , U.test "the placeholder for an aliased import includes the alias" <|
                         \s ->
                             expectRemoveUnusedImports perms s "Aliased"
-                  , U.test "a placeholder is still an own-line comment, so it keeps the imports on either side of it in separate sort groups" <|
+                  , U.test "a placeholder comment travels with the import below it, so the surrounding imports still sort as one run" <|
                         \s ->
                             expectRemoveUnusedImports perms s "GroupsSeparate"
                   , U.test "an effect module's `where { ... }` header positions survive the shift untouched" <|

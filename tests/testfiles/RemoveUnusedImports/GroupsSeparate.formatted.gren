@@ -1,9 +1,9 @@
 module GroupsSeparate exposing (x)
 
-import Zebra
 -- describes Unused
 -- removed import Unused
 import Apple
+import Zebra
 
 
 x : Zebra.Thing -> Apple.Thing -> Int
