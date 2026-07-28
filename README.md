@@ -26,6 +26,69 @@ The formatter is super careful when changing your code.
 
 If either check fails, it reports a bug to the user instead of overwriting the file.
 
+## A formatted example
+
+One function, showing several rules at once: a `let` with multiple bindings,
+a pipeline, a binary-operator chain that breaks at its loosest operators, an
+`if`, a `when`, and a record update. (`order` is a record with `isMember`,
+`hasCoupon`, `status`, and `total` fields; `Status` is a custom type that
+includes `Cancelled`.)
+
+```gren
+summarize : Order -> Array Float -> Order
+summarize order prices =
+    let
+        subtotal =
+            prices
+                |> Array.keepIf (\price -> price > 0)
+                |> Array.foldl (+) 0
+
+        eligible =
+            order.isMember && subtotal > 100
+                || order.hasCoupon && order.status /= Cancelled
+
+        discount =
+            if eligible then
+                subtotal * 0.1
+
+            else
+                0
+    in
+    when order.status is
+        Cancelled ->
+            { order | total = 0 }
+
+        _ ->
+            { order
+                | total = subtotal - discount
+                , hasCoupon = False
+            }
+```
+
+A few things worth noticing:
+
+- `subtotal` is a pipeline: each `|>` step lands on its own line, indented +4
+  from `prices` (see [Pipelines](https://github.com/gilramir/gren-format-lib/blob/main/docs/formatterRules.md#pipelines)).
+- `eligible` is a binop chain the author wrote across two rows. `||` is the
+  loosest operator here, so it's the only one that breaks; `&&` and `/=` bind
+  tighter and stay glued to their operands (see
+  [Binary operators](https://github.com/gilramir/gren-format-lib/blob/main/docs/formatterRules.md#binary-operators)).
+- `discount`'s `if` branches always drop to their own line, whether or not
+  they'd fit inline (see
+  [If expressions](https://github.com/gilramir/gren-format-lib/blob/main/docs/formatterRules.md#if-expressions)).
+- Both `when` branches return a record update, `{ order | ... }` — the
+  `Cancelled` branch's field was written on one line and stays inline, while
+  the other branch's two fields were written across rows and stay that way.
+  Neither is about length; it's however the author wrote it (see
+  [Record updates](https://github.com/gilramir/gren-format-lib/blob/main/docs/formatterRules.md#record-updates)).
+
+Every one of these decisions follows from how the code was written, not from
+any line-width target — see the
+[Gren Formatter Library README](https://github.com/gilramir/gren-format-lib#background)
+for the background, and the full
+[Gren Formatter Rules](https://github.com/gilramir/gren-format-lib/blob/main/docs/formatterRules.md)
+for the complete reference.
+
 ## Usage
 
 ```
