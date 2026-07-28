@@ -1,0 +1,12 @@
+port module PortSignatureUsage exposing (x)
+
+import Payload
+import Unused
+
+
+port sendPayload : Payload.Data -> Cmd msg
+
+
+x : Int
+x =
+    1

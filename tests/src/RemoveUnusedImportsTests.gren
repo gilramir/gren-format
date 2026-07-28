@@ -57,6 +57,9 @@ removeUnusedImportsFlagSuite perms =
                   , U.test "an effect module's `where { ... }` header positions survive the shift untouched" <|
                         \s ->
                             expectRemoveUnusedImports perms s "EffectModule"
+                  , U.test "an import used only in a port's type signature is kept" <|
+                        \s ->
+                            expectRemoveUnusedImports perms s "PortSignatureUsage"
                   , U.test "a per-declaration doc comment after the cut is shifted along with its declaration" <|
                         \s ->
                             expectRemoveUnusedImports perms s "DeclarationDocComment"
