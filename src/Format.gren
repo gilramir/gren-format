@@ -67,7 +67,17 @@ type Error
 
 
 {-| Read a file and decode its bytes as a UTF-8 source string. Maps both an I/O
-error and invalid UTF-8 to a `ShowReadFailure`. -}
+error and invalid UTF-8 to a `ShowReadFailure`.
+
+CRLF line endings are normalized to `\n` here, at the one place every read
+funnels through. Every other construct is emitted fresh by the renderer with
+plain `\n` and never copied verbatim from source, so a raw `\r` can only reach
+formatted output via a construct that DOES copy source text verbatim (a doc
+comment's body). Normalizing at the read boundary — rather than chasing that
+per-construct — also keeps the AST-equivalence check meaningful: it reparses
+our own (always-`\n`) rendered output and compares against the original
+parse, so if the original parse still carried a source `\r`, formatting a
+CRLF file would look like an AST-changing edit instead of a no-op. -}
 readSource : FileSystem.Permission -> Path -> Task Error String
 readSource fsPermission path =
     FileSystem.readFile fsPermission path
@@ -79,7 +89,7 @@ readSource fsPermission path =
                         Task.fail (ShowReadFailure { path = path, error = "File content is not valid UTF-8" })
 
                     Just source ->
-                        Task.succeed source
+                        Task.succeed (String.replace "\r\n" "\n" source)
             )
 
 
