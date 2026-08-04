@@ -3,6 +3,7 @@ module Format exposing
     , Error(..)
     , auditPredicatesFile
     , boxFile
+    , decisionsFile
     , expandPathToFiles
     , formatFile
     , formatPaths
@@ -30,6 +31,7 @@ import Compiler.Parse.Context.Json as ContextJson
 import Compiler.Parse.Module as PM
 import FileSystem
 import FileSystem.Path as Path exposing (Path)
+import Formatter.Audit.DecisionTrace as DecisionTrace
 import Formatter.Audit.PredicateAgreement as PredicateAgreement
 import Formatter.Logical exposing (makeLogicalPrintingTree)
 import Formatter.Logical.LPTJson as LPTJson
@@ -543,6 +545,88 @@ auditPredicatesFile { stdout, fsPermission } path =
                             Ok lpt ->
                                 Stream.Log.line stdout
                                     (PredicateAgreement.findingsToJson (PredicateAgreement.auditLpt lpt))
+            )
+
+
+{-| Format the file twice and print, as JSON, which layout *decisions* differed
+between the two passes -- not which bytes did.
+
+`--show` already answers "is this a fixed point". It cannot answer "which
+decision was not", and with a non-zero residual of known non-idempotent shapes
+that second question is the one with a work-list behind it: a byte diff has to
+be traced back to a culprit by hand, whereas a flipped decision names itself and
+groups with every other finding that flipped the same one.
+
+The two passes here are the same two `verifyReparse` runs -- render, reparse,
+render the reparsed AST -- with the AST comparison left out and both Logical
+Printing Trees kept. Leaving it out is deliberate: this flag is aimed at files
+that are *not* fixed points, and an AST mismatch is a different bug class that
+`--show` reports properly.
+-}
+decisionsFile : { stdout : Stream.Writable Bytes, fsPermission : FileSystem.Permission } -> Path -> Task Error {}
+decisionsFile { stdout, fsPermission } path =
+    readSource fsPermission path
+        |> Task.andThen
+            (\source ->
+                when decisionStabilityReport path source is
+                    Err err ->
+                        Task.fail err
+
+                    Ok report ->
+                        Stream.Log.line stdout (DecisionTrace.reportToJson report)
+            )
+
+
+decisionStabilityReport :
+    Path
+    -> String
+    ->
+        Result Error
+            { bytesDiffer : Bool
+            , flips : Array DecisionTrace.Flip
+            , movedDecls : Array String
+            , convergedFlips : Int
+            , decisionCount : Int
+            }
+decisionStabilityReport path source =
+    let
+        wrapErr errString =
+            PrettyPrintFailure { path = path, error = errString }
+
+        -- The per-declaration trace and the string the whole file renders to.
+        -- `renderModule` gives only the second, and the trace is the point here.
+        renderPass ast payload =
+            makeLogicalPrintingTree ast payload
+                |> Result.mapError wrapErr
+                |> Result.andThen
+                    (\lpt ->
+                        Result.map2
+                            (\pretty decls -> { pretty = pretty, decls = decls })
+                            (makePrettyResult lpt)
+                            (DecisionTrace.traceDeclarations lpt)
+                            |> Result.mapError wrapErr
+                    )
+    in
+    parseModule ParseFailure path source
+        |> Result.andThen (\first -> renderPass first.ast first.payload)
+        |> Result.andThen
+            (\pass1 ->
+                parseModule CheckReparseFailed path pass1.pretty
+                    |> Result.andThen (\second -> renderPass second.ast second.payload)
+                    |> Result.map
+                        (\pass2 ->
+                            let
+                                diff =
+                                    DecisionTrace.diffDeclarations pass1.decls pass2.decls
+                            in
+                            { bytesDiffer = pass1.pretty /= pass2.pretty
+                            , flips = diff.flips
+                            , movedDecls = diff.movedDecls
+                            , convergedFlips = diff.convergedFlips
+                            , decisionCount =
+                                Array.foldl (\d acc -> acc + Array.length d.decisions) 0 pass1.decls
+                            }
+                        )
             )
 
 

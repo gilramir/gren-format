@@ -36,6 +36,7 @@ type alias FormatFlags =
     , lpt : Maybe Path
     , box : Maybe Path
     , auditPredicates : Maybe Path
+    , decisions : Maybe Path
     }
 
 
@@ -53,7 +54,7 @@ command =
         , help = "Gren source file or directory to pretty-print in place"
         }
     , flags = AP.initFlags
-        (\removeUnusedImports show showFirst preAst preContext postAst postContext lpt box auditPredicates ->
+        (\removeUnusedImports show showFirst preAst preContext postAst postContext lpt box auditPredicates decisions ->
             { files = []
             , removeUnusedImports = removeUnusedImports
             , show = show
@@ -65,6 +66,7 @@ command =
             , lpt = lpt
             , box = box
             , auditPredicates = auditPredicates
+            , decisions = decisions
             }
         )
         |> AP.toggle (AP.LongOnly "remove-unused-imports") "Remove unused imports while formatting"
@@ -77,6 +79,7 @@ command =
         |> AP.flag (AP.LongOnly "lpt") AP.pathParser "Parse a single file and print its Logical Printing Tree as JSON to stdout"
         |> AP.flag (AP.LongOnly "box") AP.pathParser "Parse a single file and print the Box render tree as JSON to stdout"
         |> AP.flag (AP.LongOnly "audit-predicates") AP.pathParser "Parse a single file and print, as JSON, every layout predicate that claims a hard break the renderer does not emit"
+        |> AP.flag (AP.LongOnly "decisions") AP.pathParser "Format a single file twice and print, as JSON, which layout decisions differed between the two passes"
     , commonDescription = Nothing
     , summary = "Format Gren source code."
     , example = PP.empty
@@ -134,6 +137,7 @@ onCommand env context flags =
                     || flags.lpt /= Nothing
                     || flags.box /= Nothing
                     || flags.auditPredicates /= Nothing
+                    || flags.decisions /= Nothing
         in
         if anyFlagSet then
             Task.fail (Program.ExitMessage "Cannot combine file path arguments with flags. Use --help for options.")
@@ -173,6 +177,7 @@ onCommand env context flags =
                     , Maybe.map (Format.lptFile fileConfig) flags.lpt
                     , Maybe.map (Format.boxFile fileConfig) flags.box
                     , Maybe.map (Format.auditPredicatesFile fileConfig) flags.auditPredicates
+                    , Maybe.map (Format.decisionsFile fileConfig) flags.decisions
                     ]
         in
         when singleFileOp is

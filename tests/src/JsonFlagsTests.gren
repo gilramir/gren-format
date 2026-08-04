@@ -1,7 +1,8 @@
 module JsonFlagsTests exposing (jsonFlagsSuite)
 
 {-| CLI integration tests for the JSON debug flags: `--pre-ast`,
-`--pre-context`, `--post-ast`, `--post-context`, `--lpt`, `--box`.
+`--pre-context`, `--post-ast`, `--post-context`, `--lpt`, `--box`,
+`--decisions`.
 
 @docs jsonFlagsSuite
 -}
@@ -45,6 +46,17 @@ jsonFlagsSuite perms =
                         \appPath ->
                             runJson perms appPath "--box"
                                 |> Task.map (\r -> jsonOk r (Support.expectJsonArray r.stdout))
+                  , U.test "decisions reports a stable fixture as unmoved" <|
+                        \appPath ->
+                            runJson perms appPath "--decisions"
+                                |> Task.map
+                                    (\r ->
+                                        jsonOk r
+                                            (Support.expectJsonHasFields
+                                                [ "bytesDiffer", "unexplained", "decisionCount", "convergedFlips", "movedDecls", "flips" ]
+                                                r.stdout
+                                            )
+                                    )
                   ]
         }
 
