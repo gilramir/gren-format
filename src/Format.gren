@@ -744,7 +744,7 @@ prettifyError error =
 
         PrettyPrintFailure { path, error = message } ->
             Report.create
-                "Could not format this file. Please report this 'gren format' bug."
+                "FORMATTER INTERNAL ERROR. PLEASE REPORT THIS 'gren-format' BUG."
                 (Just path)
                 (PP.verticalBlock (Array.map PP.text (String.split "\n" message))
                 )
