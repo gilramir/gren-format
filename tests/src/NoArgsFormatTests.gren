@@ -3,6 +3,19 @@ module NoArgsFormatTests exposing (noArgsFormatSuite)
 {-| CLI integration tests for running `gren-format` with no arguments when a
 `gren.json` project is present — formats every source file in place.
 
+This mode reads its sources through `Outline.findSourceFiles`, not through
+`Format.readSource`, so anything the read boundary is supposed to do has to be
+checked here separately — CRLF normalization was missing from exactly this
+path, and `--show` passed on the very same bytes.
+
+The CRLF case reads its module from
+`testfiles/CrlfProject/DocBodyAndMultilineString.gren` rather than building one
+inline, because the trigger is narrower than "has a doc comment": several
+hand-written CRLF modules with multi-row doc comments pass with or without the
+fix. That file is a mechanically reduced real failure (from
+`fuzz-project.py --trial 0`), kept in the repo with LF endings and converted to
+CRLF by the test.
+
 @docs noArgsFormatSuite
 -}
 
@@ -51,5 +64,28 @@ noArgsFormatSuite perms =
                                 |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Just (Path.toPosixString s.dir) } [])
                                 |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Just (Path.toPosixString s.dir) } [])
                                 |> Task.map (\r -> Support.expectContains "0 files reformatted" r.stdout)
+                  , U.test "a CRLF project formats in place like any other, and the run after it is a no-op" <|
+                        \s ->
+                            let
+                                srcFile =
+                                    Path.append (Path.fromPosixString "src/Hello.gren") s.dir
+
+                                runOnce =
+                                    Support.runApp perms s.appPath { cwd = Just (Path.toPosixString s.dir) } []
+                            in
+                            readBack perms (Path.fromPosixString "testfiles/CrlfProject/DocBodyAndMultilineString.gren")
+                                |> Task.andThen (\lf -> Support.makeProject perms s.dir (String.replace "\n" "\r\n" lf))
+                                |> Task.andThen (\_ -> runOnce)
+                                |> Task.andThen (\first -> runOnce |> Task.map (\second -> { first = first, second = second }))
+                                |> Task.andThen (\rs -> readBack perms srcFile |> Task.map (\after -> { rs = rs, after = after }))
+                                |> Task.map
+                                    (\res ->
+                                        Expect.all
+                                            [ \_ -> Expect.equal 0 res.rs.first.exitCode
+                                            , \_ -> Expect.equal False (String.contains "\r" res.after)
+                                            , \_ -> Support.expectContains "0 files reformatted" res.rs.second.stdout
+                                            ]
+                                            {}
+                                    )
                   ]
         }

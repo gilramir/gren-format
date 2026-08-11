@@ -1,0 +1,16 @@
+port module Mod0 exposing
+    ( Union0(..)
+    )
+import Qux4 exposing
+    ( acc
+    , z {- k2
+foxtrot -} {- k3 -} -- k4
+    )
+type Union0
+    = Bravo7 | Bravo8 { value0 : a } | Delta9 String -- k10
+{-|
+echo tango
+-}
+fn1 (_x as z) { count } ((String.Nothing) as x) =
+    """
+    """
