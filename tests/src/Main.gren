@@ -36,20 +36,22 @@ main =
     U.runWith
         { name = "gren-format-cli-tests"
         , version = "1.0.0"
-        , init = \done ->
-            Init.await FileSystem.initialize <|
-                \fs ->
-                    Init.await ChildProcess.initialize <|
-                        \cp ->
-                            done { fs = fs, childProcess = cp }
+        , init =
+            \done ->
+                Init.await FileSystem.initialize <|
+                    \fs ->
+                        Init.await ChildProcess.initialize <|
+                            \cp ->
+                                done { fs = fs, childProcess = cp }
         , globalSetUp = U.noFixture
         , globalTearDown = U.noTearDown
-        , suites = \perms ->
-            [ noArgsSuite perms
-            , showFlagSuite perms
-            , jsonFlagsSuite perms
-            , positionalSuite perms
-            , noArgsFormatSuite perms
-            , removeUnusedImportsFlagSuite perms
-            ]
+        , suites =
+            \perms ->
+                [ noArgsSuite perms
+                , showFlagSuite perms
+                , jsonFlagsSuite perms
+                , positionalSuite perms
+                , noArgsFormatSuite perms
+                , removeUnusedImportsFlagSuite perms
+                ]
         }

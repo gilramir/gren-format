@@ -49,37 +49,39 @@ type alias Context =
 command : AP.Command (Array Path) FormatFlags FormatFlags
 command =
     { word = ""
-    , arguments = AP.zeroOrMoreArgs
-        { value = AP.pathParser
-        , help = "Gren source file or directory to pretty-print in place"
-        }
-    , flags = AP.initFlags
-        (\removeUnusedImports show showFirst preAst preContext postAst postContext lpt box auditPredicates decisions ->
-            { files = []
-            , removeUnusedImports = removeUnusedImports
-            , show = show
-            , showFirst = showFirst
-            , preAst = preAst
-            , preContext = preContext
-            , postAst = postAst
-            , postContext = postContext
-            , lpt = lpt
-            , box = box
-            , auditPredicates = auditPredicates
-            , decisions = decisions
+    , arguments =
+        AP.zeroOrMoreArgs
+            { value = AP.pathParser
+            , help = "Gren source file or directory to pretty-print in place"
             }
-        )
-        |> AP.toggle (AP.LongOnly "remove-unused-imports") "Remove unused imports while formatting"
-        |> AP.flag (AP.LongOnly "show") AP.pathParser "Parse and pretty-print a single file to stdout without modifying it"
-        |> AP.flag (AP.LongOnly "show-first") AP.pathParser "Like --show but print the FIRST format without the idempotency guard (debug: inspect a non-idempotent first pass)"
-        |> AP.flag (AP.LongOnly "pre-ast") AP.pathParser "Parse a single file and print its AST as JSON to stdout"
-        |> AP.flag (AP.LongOnly "pre-context") AP.pathParser "Parse a single file and print its parse Context (comments) as JSON to stdout"
-        |> AP.flag (AP.LongOnly "post-ast") AP.pathParser "Parse and format a file, verify the ASTs match, then print the formatted file's AST as JSON to stdout"
-        |> AP.flag (AP.LongOnly "post-context") AP.pathParser "Parse and format a file, verify the ASTs match, then print the formatted file's parse Context as JSON to stdout"
-        |> AP.flag (AP.LongOnly "lpt") AP.pathParser "Parse a single file and print its Logical Printing Tree as JSON to stdout"
-        |> AP.flag (AP.LongOnly "box") AP.pathParser "Parse a single file and print the Box render tree as JSON to stdout"
-        |> AP.flag (AP.LongOnly "audit-predicates") AP.pathParser "Parse a single file and print, as JSON, every layout predicate that claims a hard break the renderer does not emit"
-        |> AP.flag (AP.LongOnly "decisions") AP.pathParser "Format a single file twice and print, as JSON, which layout decisions differed between the two passes"
+    , flags =
+        AP.initFlags
+            (\removeUnusedImports show showFirst preAst preContext postAst postContext lpt box auditPredicates decisions ->
+                { files = []
+                , removeUnusedImports = removeUnusedImports
+                , show = show
+                , showFirst = showFirst
+                , preAst = preAst
+                , preContext = preContext
+                , postAst = postAst
+                , postContext = postContext
+                , lpt = lpt
+                , box = box
+                , auditPredicates = auditPredicates
+                , decisions = decisions
+                }
+            )
+            |> AP.toggle (AP.LongOnly "remove-unused-imports") "Remove unused imports while formatting"
+            |> AP.flag (AP.LongOnly "show") AP.pathParser "Parse and pretty-print a single file to stdout without modifying it"
+            |> AP.flag (AP.LongOnly "show-first") AP.pathParser "Like --show but print the FIRST format without the idempotency guard (debug: inspect a non-idempotent first pass)"
+            |> AP.flag (AP.LongOnly "pre-ast") AP.pathParser "Parse a single file and print its AST as JSON to stdout"
+            |> AP.flag (AP.LongOnly "pre-context") AP.pathParser "Parse a single file and print its parse Context (comments) as JSON to stdout"
+            |> AP.flag (AP.LongOnly "post-ast") AP.pathParser "Parse and format a file, verify the ASTs match, then print the formatted file's AST as JSON to stdout"
+            |> AP.flag (AP.LongOnly "post-context") AP.pathParser "Parse and format a file, verify the ASTs match, then print the formatted file's parse Context as JSON to stdout"
+            |> AP.flag (AP.LongOnly "lpt") AP.pathParser "Parse a single file and print its Logical Printing Tree as JSON to stdout"
+            |> AP.flag (AP.LongOnly "box") AP.pathParser "Parse a single file and print the Box render tree as JSON to stdout"
+            |> AP.flag (AP.LongOnly "audit-predicates") AP.pathParser "Parse a single file and print, as JSON, every layout predicate that claims a hard break the renderer does not emit"
+            |> AP.flag (AP.LongOnly "decisions") AP.pathParser "Format a single file twice and print, as JSON, which layout decisions differed between the two passes"
     , commonDescription = Nothing
     , summary = "Format Gren source code."
     , example = PP.empty
@@ -93,20 +95,21 @@ main =
         { name = "gren-format"
         , version = "1.0.0"
         , command = command
-        , init = \_env toProgram ->
-            Init.await FileSystem.initialize <|
-                \fsPermission ->
-                    Init.await Terminal.initialize <|
-                        \terminalConfig ->
-                            Init.awaitTask Node.getEnvironmentVariables <|
-                                \envVars ->
-                                    let
-                                        -- Color only when stderr/stdout is an interactive terminal
-                                        -- and the user hasn't set NO_COLOR (https://no-color.org).
-                                        useColor =
-                                            terminalConfig /= Nothing && not (Dict.member "NO_COLOR" envVars)
-                                    in
-                                    toProgram { fs = fsPermission, useColor = useColor }
+        , init =
+            \_env toProgram ->
+                Init.await FileSystem.initialize <|
+                    \fsPermission ->
+                        Init.await Terminal.initialize <|
+                            \terminalConfig ->
+                                Init.awaitTask Node.getEnvironmentVariables <|
+                                    \envVars ->
+                                        let
+                                            -- Color only when stderr/stdout is an interactive terminal
+                                            -- and the user hasn't set NO_COLOR (https://no-color.org).
+                                            useColor =
+                                                terminalConfig /= Nothing && not (Dict.member "NO_COLOR" envVars)
+                                        in
+                                        toProgram { fs = fsPermission, useColor = useColor }
         , onCommand = onCommand
         }
 

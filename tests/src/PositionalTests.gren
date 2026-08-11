@@ -22,65 +22,66 @@ positionalSuite perms =
         , tearDownSuite = U.noTearDown
         , setUp = makeScratch perms
         , tearDown = removeScratch perms
-        , tests = [ U.test "formats a file in place" <|
-                        \s ->
-                            let
-                                file =
-                                    Path.append (Path.fromPosixString "Hello.gren") s.dir
-                            in
-                            Support.writeText perms file dirtyHello
-                                |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Nothing } [ Path.toPosixString file ])
-                                |> Task.andThen (\r -> readBack perms file |> Task.map (\after -> formattedInPlace r after))
-                  , U.test "formats multiple files in place" <|
-                        \s ->
-                            let
-                                fileA =
-                                    Path.append (Path.fromPosixString "A.gren") s.dir
+        , tests =
+            [ U.test "formats a file in place" <|
+                \s ->
+                    let
+                        file =
+                            Path.append (Path.fromPosixString "Hello.gren") s.dir
+                    in
+                    Support.writeText perms file dirtyHello
+                        |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Nothing } [ Path.toPosixString file ])
+                        |> Task.andThen (\r -> readBack perms file |> Task.map (\after -> formattedInPlace r after))
+            , U.test "formats multiple files in place" <|
+                \s ->
+                    let
+                        fileA =
+                            Path.append (Path.fromPosixString "A.gren") s.dir
 
-                                fileB =
-                                    Path.append (Path.fromPosixString "B.gren") s.dir
-                            in
-                            Support.writeText perms fileA "module A exposing (x)\nx : Int\nx =\n    1\n"
-                                |> Task.andThen (\_ -> Support.writeText perms fileB "module B exposing (x)\nx : Int\nx =\n    1\n")
-                                |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Nothing } [ Path.toPosixString fileA, Path.toPosixString fileB ])
-                                |> Task.andThen
-                                    (\r ->
-                                        readBack perms fileA
-                                            |> Task.andThen (\a -> readBack perms fileB |> Task.map (\b -> { a = a, b = b, r = r }))
-                                    )
-                                |> Task.map
-                                    (\res ->
-                                        Expect.all
-                                            [ \_ -> Expect.equal 0 res.r.exitCode
-                                            , \_ -> Support.expectContains "\n\n\n" res.a
-                                            , \_ -> Support.expectContains "\n\n\n" res.b
-                                            ]
-                                            {}
-                                    )
-                  , U.test "flag combined with positional arg exits nonzero" <|
-                        \s ->
-                            Support.runApp perms s.appPath { cwd = Nothing } [ "--show", helloFixture, helloFixture ]
-                                |> Task.map (\r -> Expect.notEqual 0 r.exitCode)
-                  , U.test "summary reports reformatted count" <|
-                        \s ->
-                            let
-                                file =
-                                    Path.append (Path.fromPosixString "Hello.gren") s.dir
-                            in
-                            Support.writeText perms file dirtyHello
-                                |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Nothing } [ Path.toPosixString file ])
-                                |> Task.map (\r -> Support.expectContains "1 files reformatted" r.stdout)
-                  , U.test "summary reports 0 reformatted when file already formatted" <|
-                        \s ->
-                            let
-                                file =
-                                    Path.append (Path.fromPosixString "Hello.gren") s.dir
-                            in
-                            Support.writeText perms file dirtyHello
-                                |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Nothing } [ Path.toPosixString file ])
-                                |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Nothing } [ Path.toPosixString file ])
-                                |> Task.map (\r -> Support.expectContains "0 files reformatted" r.stdout)
-                  ]
+                        fileB =
+                            Path.append (Path.fromPosixString "B.gren") s.dir
+                    in
+                    Support.writeText perms fileA "module A exposing (x)\nx : Int\nx =\n    1\n"
+                        |> Task.andThen (\_ -> Support.writeText perms fileB "module B exposing (x)\nx : Int\nx =\n    1\n")
+                        |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Nothing } [ Path.toPosixString fileA, Path.toPosixString fileB ])
+                        |> Task.andThen
+                            (\r ->
+                                readBack perms fileA
+                                    |> Task.andThen (\a -> readBack perms fileB |> Task.map (\b -> { a = a, b = b, r = r }))
+                            )
+                        |> Task.map
+                            (\res ->
+                                Expect.all
+                                    [ \_ -> Expect.equal 0 res.r.exitCode
+                                    , \_ -> Support.expectContains "\n\n\n" res.a
+                                    , \_ -> Support.expectContains "\n\n\n" res.b
+                                    ]
+                                    {}
+                            )
+            , U.test "flag combined with positional arg exits nonzero" <|
+                \s ->
+                    Support.runApp perms s.appPath { cwd = Nothing } [ "--show", helloFixture, helloFixture ]
+                        |> Task.map (\r -> Expect.notEqual 0 r.exitCode)
+            , U.test "summary reports reformatted count" <|
+                \s ->
+                    let
+                        file =
+                            Path.append (Path.fromPosixString "Hello.gren") s.dir
+                    in
+                    Support.writeText perms file dirtyHello
+                        |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Nothing } [ Path.toPosixString file ])
+                        |> Task.map (\r -> Support.expectContains "1 files reformatted" r.stdout)
+            , U.test "summary reports 0 reformatted when file already formatted" <|
+                \s ->
+                    let
+                        file =
+                            Path.append (Path.fromPosixString "Hello.gren") s.dir
+                    in
+                    Support.writeText perms file dirtyHello
+                        |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Nothing } [ Path.toPosixString file ])
+                        |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Nothing } [ Path.toPosixString file ])
+                        |> Task.map (\r -> Support.expectContains "0 files reformatted" r.stdout)
+            ]
         }
 
 

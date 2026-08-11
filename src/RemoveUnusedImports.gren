@@ -128,15 +128,16 @@ removeUnusedImports modAst ctx =
         shifted =
             ShiftPositions.shiftDeclarations totalDelta modAst
     in
-    { module_ = { modAst
-                    | imports = newImports
-                    , docs = newDocs
-                    , values = shifted.values
-                    , unions = shifted.unions
-                    , aliases = shifted.aliases
-                    , effects = shifted.effects
-                    , binops = shifted.binops
-                }
+    { module_ =
+        { modAst
+            | imports = newImports
+            , docs = newDocs
+            , values = shifted.values
+            , unions = shifted.unions
+            , aliases = shifted.aliases
+            , effects = shifted.effects
+            , binops = shifted.binops
+        }
     , context = { ctx | comments = Builder.fromArray newComments }
     }
 
@@ -149,6 +150,7 @@ compareCommentPosition a b =
 
         other ->
             other
+
 
 -- IMPORT CLASSIFICATION
 --
@@ -731,6 +733,7 @@ commentIsInsideAny removedRanges locComment =
         )
         removedRanges
 
+
 -- EXPOSING LIST TRIMMING
 --
 -- A kept import can still carry exposed names nothing in the file uses --
@@ -862,6 +865,7 @@ exposedIsUsed refs exposed =
 
         Src.ExposedOperator locOp ->
             Array.member locOp.value refs.operators
+
 
 -- REFERENCE COLLECTION
 --

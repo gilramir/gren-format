@@ -607,14 +607,13 @@ decisionsFile { stdout, fsPermission } path =
 decisionStabilityReport :
     Path
     -> String
-    ->
-        Result Error
-            { bytesDiffer : Bool
-            , flips : Array DecisionTrace.Flip
-            , movedDecls : Array String
-            , convergedFlips : Int
-            , decisionCount : Int
-            }
+    -> Result Error
+        { bytesDiffer : Bool
+        , flips : Array DecisionTrace.Flip
+        , movedDecls : Array String
+        , convergedFlips : Int
+        , decisionCount : Int
+        }
 decisionStabilityReport path source =
     let
         wrapErr errString =
@@ -650,8 +649,7 @@ decisionStabilityReport path source =
                             , flips = diff.flips
                             , movedDecls = diff.movedDecls
                             , convergedFlips = diff.convergedFlips
-                            , decisionCount =
-                                Array.foldl (\d acc -> acc + Array.length d.decisions) 0 pass1.decls
+                            , decisionCount = Array.foldl (\d acc -> acc + Array.length d.decisions) 0 pass1.decls
                             }
                         )
             )

@@ -219,11 +219,11 @@ minimalGrenJson : String
 minimalGrenJson =
     """
     {
-        \"type\": \"application\",
-        \"platform\": \"node\",
-        \"source-directories\": [ \"src\" ],
-        \"gren-version\": \"0.6.5\",
-        \"dependencies\": { \"direct\": {}, \"indirect\": {} }
+        "type": "application",
+        "platform": "node",
+        "source-directories": [ "src" ],
+        "gren-version": "0.6.5",
+        "dependencies": { "direct": {}, "indirect": {} }
     }
     """
 
