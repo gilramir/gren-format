@@ -1,0 +1,10 @@
+module DocShieldModuleDocPresent exposing (someFunc)
+
+{-| The module's own documentation. -}
+
+import Unused exposing (Thing)
+
+
+{-| What this function is for. -}
+someFunc x =
+    x

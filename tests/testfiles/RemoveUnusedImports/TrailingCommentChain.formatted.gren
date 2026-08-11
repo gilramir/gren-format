@@ -1,0 +1,8 @@
+module TrailingCommentChain exposing (someFunc)
+
+import Array
+{- kept -} import Dict
+
+
+someFunc x =
+    Array.append (Dict.empty) x

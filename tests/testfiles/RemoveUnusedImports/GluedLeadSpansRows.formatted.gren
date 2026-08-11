@@ -1,0 +1,7 @@
+module GluedLeadSpansRows exposing (someFunc)
+
+-- and a comment on the row below
+
+
+someFunc x =
+    x

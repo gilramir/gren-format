@@ -1,0 +1,10 @@
+module TrailingCommentChainBreaks exposing (someFunc)
+
+import Unused exposing (thing) {- about the unused import
+   and it wraps -}
+-- a row further down, so this leads Array instead
+import Array
+
+
+someFunc x =
+    Array.append x x

@@ -1,0 +1,12 @@
+module DocShieldLeadingComment exposing (someFunc)
+
+-- kept here on purpose
+-- removed import Unused
+
+
+{-| removed import Unused -}
+
+
+{-| What this function is for. -}
+someFunc x =
+    x

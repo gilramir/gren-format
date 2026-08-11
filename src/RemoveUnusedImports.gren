@@ -71,17 +71,33 @@ removeUnusedImports modAst ctx =
         scan =
             classifyImports refs comments modAst.imports
 
+        keptComments =
+            comments
+                |> Array.keepIf (\c -> not (commentIsInsideAny scan.removedRanges c))
+                |> Array.keepIf (\c -> not (Array.member c.start.row scan.trimmedExposedRows))
+
+        chargedCuts =
+            chargeOverlappingComments keptComments scan.cuts
+
+        shield =
+            docShield modAst { scan | cuts = chargedCuts }
+
+        cuts =
+            when shield is
+                Just s ->
+                    s.cuts
+
+                Nothing ->
+                    chargedCuts
+
         deltaAt =
-            deltaAtRow scan.cuts
+            deltaAtRow cuts
 
         newImports =
             Array.map (\locImport -> ShiftPositions.shiftImport (deltaAt locImport.start.row) locImport) scan.keptImports
 
         survivingComments =
-            comments
-                |> Array.keepIf (\c -> not (commentIsInsideAny scan.removedImports c))
-                |> Array.keepIf (\c -> not (Array.member c.start.row scan.trimmedExposedRows))
-                |> Array.map (\c -> ShiftPositions.shiftLocated (deltaAt c.start.row) c)
+            Array.map (\c -> ShiftPositions.shiftLocated (deltaAt c.start.row) c) keptComments
 
         -- Each placeholder is built at its import's ORIGINAL (unshifted)
         -- start row (see `placeholderComment`), so it still needs the same
@@ -99,13 +115,22 @@ removeUnusedImports modAst ctx =
                 |> Array.sortWith compareCommentPosition
 
         totalDelta =
-            -(Array.foldl (\cut acc -> acc + cut.freedRows) 0 scan.cuts)
+            -(Array.foldl (\cut acc -> acc + cut.freedRows) 0 cuts)
+
+        newDocs =
+            when shield is
+                Just s ->
+                    Just (ShiftPositions.shiftLocated (deltaAt s.doc.start.row) s.doc)
+
+                Nothing ->
+                    modAst.docs
 
         shifted =
             ShiftPositions.shiftDeclarations totalDelta modAst
     in
     { module_ = { modAst
                     | imports = newImports
+                    , docs = newDocs
                     , values = shifted.values
                     , unions = shifted.unions
                     , aliases = shifted.aliases
@@ -137,9 +162,12 @@ original last row: any position whose original row is greater is shifted by
 `freedRows` (in addition to any earlier cuts). `freedRows` is the import's
 own height for a plain removal, or that height minus one when a placeholder
 comment survives in its place (the placeholder still occupies its first
-row). -}
+row) -- and minus again for any of those rows a surviving comment is still
+sitting on (`chargeOverlappingComments`). `startRow` is the import's own
+first row, which is what those rows are counted from. -}
 type alias Cut =
-    { cutoffRow : Int
+    { startRow : Int
+    , cutoffRow : Int
     , freedRows : Int
     }
 
@@ -208,10 +236,12 @@ deltaAtRow cuts row =
 
 type alias ScanState =
     { hasPendingLeading : Bool
+    , runStartRow : Int
     , lastRow : Int
     , justSawImportEndingAt : Maybe Int
     , keptImports : Array (Located Src.Import)
     , removedImports : Array (Located Src.Import)
+    , removedRanges : Array { startRow : Int, endRow : Int }
     , cuts : Array Cut
     , placeholders : Array (Located Ctx.Comment)
     , trimmedExposedRows : Array Int
@@ -232,16 +262,18 @@ original row/col, so a single row-ordered walk correctly interleaves them
 regardless of how `Array.Builder` happened to accumulate `ctx.comments`. -}
 classifyImports : Refs -> Array (Located Ctx.Comment) -> Array (Located Src.Import) -> ScanState
 classifyImports refs comments imports =
-    Array.foldl (classifyStep refs) initScanState (mergedRegion imports comments)
+    Array.foldl (classifyStep refs comments) initScanState (mergedRegion imports comments)
 
 
 initScanState : ScanState
 initScanState =
     { hasPendingLeading = False
+    , runStartRow = 0
     , lastRow = 0
     , justSawImportEndingAt = Nothing
     , keptImports = []
     , removedImports = []
+    , removedRanges = []
     , cuts = []
     , placeholders = []
     , trimmedExposedRows = []
@@ -296,8 +328,8 @@ regionItemRank item =
             1
 
 
-classifyStep : Refs -> RegionItem -> ScanState -> ScanState
-classifyStep refs item state =
+classifyStep : Refs -> Array (Located Ctx.Comment) -> RegionItem -> ScanState -> ScanState
+classifyStep refs comments item state =
     when item is
         CommentItem c ->
             if not state.hasPendingLeading && state.justSawImportEndingAt == Just c.start.row then
@@ -318,18 +350,41 @@ classifyStep refs item state =
                 -- never claimed by an import it survives as an ordinary
                 -- comment via the ordinary `commentIsInsideAny` filter in
                 -- `removeUnusedImports`, unaffected either way.)
-                { state | hasPendingLeading = True, lastRow = c.end.row, justSawImportEndingAt = Nothing }
+                { state
+                    | hasPendingLeading = True
+                    , runStartRow = c.start.row
+                    , lastRow = c.end.row
+                    , justSawImportEndingAt = Nothing
+                }
 
         ImportItem locImport ->
             let
+                -- Measured against the row the import's glued lead opens on
+                -- rather than the keyword's row, because an own-line run above
+                -- a glued lead leads the whole thing and needs the same
+                -- placeholder as one sitting on the keyword's row.
+                --
+                -- The run has to be asked where it STARTS, not just where it
+                -- ends: the walk sees the glued lead as an ordinary comment and
+                -- carries the run down through it, so a run that is nothing but
+                -- the glued lead ends inside the range too, and has nothing
+                -- above to orphan.
                 hasLeadingRun =
-                    state.hasPendingLeading && state.lastRow + 1 == locImport.start.row
+                    state.hasPendingLeading
+                        && state.runStartRow < chainStart
+                        && state.lastRow + 1 >= chainStart
 
                 used =
                     importIsUsed refs locImport.value
 
+                chainEnd =
+                    trailingChainEndRow comments locImport
+
+                chainStart =
+                    gluedLeadStartRow comments locImport
+
                 height =
-                    locImport.end.row - locImport.start.row + 1
+                    chainEnd - chainStart + 1
 
                 withReset extra =
                     { extra
@@ -360,24 +415,289 @@ classifyStep refs item state =
                 withReset
                     { state
                         | removedImports = Array.pushLast locImport state.removedImports
-                        , cuts = Array.pushLast { cutoffRow = locImport.end.row, freedRows = height } state.cuts
+                        , removedRanges = Array.pushLast { startRow = chainStart, endRow = chainEnd } state.removedRanges
+                        , cuts = Array.pushLast { startRow = chainStart, cutoffRow = chainEnd, freedRows = height } state.cuts
                     }
 
             else
                 withReset
                     { state
                         | removedImports = Array.pushLast locImport state.removedImports
-                        , cuts = Array.pushLast { cutoffRow = locImport.end.row, freedRows = height - 1 } state.cuts
-                        , placeholders = Array.pushLast (placeholderComment locImport) state.placeholders
+                        , removedRanges = Array.pushLast { startRow = chainStart, endRow = chainEnd } state.removedRanges
+                        , cuts = Array.pushLast { startRow = chainStart, cutoffRow = chainEnd, freedRows = height - 1 } state.cuts
+                        , placeholders = Array.pushLast (placeholderComment chainStart locImport) state.placeholders
                     }
 
 
+{-| The module's own doc slot is parsed BEFORE its imports
+(`Compiler.Parse.Module`: header → exports → docs → imports → declarations),
+so a `{-| ... -}` is only the *first declaration's* doc because an import
+stands between it and the header. Remove every import and that same comment
+reparses as the MODULE's doc — the declaration silently loses its
+documentation, and the file means something different from what the author
+wrote. Nothing about the output's spelling can prevent it: the parser skips
+line and block comments while looking for the docs slot, so a
+`-- removed import Foo` placeholder does not shield it (verified).
+
+So when removal would empty the import list, the module has no doc of its
+own, and the first declaration has one, this hands the docs slot a
+`{-| removed import Foo -}` of its own, naming the last import removed. The
+declaration's doc then stays the declaration's, and the reason it must stay
+is written down where the next reader will find it. The doc is a real
+`Src.Module.docs` entry rather than a comment in the context, because that
+is where the renderer reads a module doc from — and because the reparsed
+output must AST-compare equal to what this function returns.
+
+Only ever reached in a module that has no doc comment of its own, which for
+an exposed package module is already a docs-generation failure; in practice
+this is an application or internal module.
+
+Returns the doc plus the adjusted `cuts` — the doc occupies one row that
+would otherwise have been freed, exactly like `placeholderComment`. It takes
+the last removed import's own start row, or the row below it when that row
+already carries a placeholder (`freedRows` then goes one lower still, which
+is negative for a one-row import whose placeholder already took its row: the
+file grows by the row the doc needs, and `deltaAtRow` shifts everything
+below down to make it). -}
+docShield : Src.Module -> ScanState -> Maybe { doc : Located String, cuts : Array Cut }
+docShield modAst scan =
+    if
+        Array.isEmpty scan.keptImports
+            && modAst.docs == Nothing
+            && firstDeclarationHasDocs modAst
+    then
+        when Array.last scan.removedImports is
+            Just lastRemoved ->
+                let
+                    placeholderTookItsRow =
+                        Array.any
+                            (\c -> c.start.row == lastRemoved.start.row)
+                            scan.placeholders
+
+                    row =
+                        if placeholderTookItsRow then
+                            lastRemoved.start.row + 1
+
+                        else
+                            lastRemoved.start.row
+
+                    aliasSuffix =
+                        when lastRemoved.value.alias is
+                            Just alias_ ->
+                                " as " ++ alias_
+
+                            Nothing ->
+                                ""
+
+                    text =
+                        " removed import " ++ lastRemoved.value.module_.value ++ aliasSuffix ++ " "
+
+                    start =
+                        { row = row, col = lastRemoved.start.col }
+                in
+                Just
+                    { doc =
+                        { start = start
+                        , end = { row = row, col = start.col + 5 + String.count text }
+                        , value = text
+                        }
+                    , cuts = spendOneRow scan.cuts
+                    }
+
+            Nothing ->
+                Nothing
+
+    else
+        Nothing
+
+
+{-| A removed import does not free a row that something else is still
+standing on. A block comment that opens on an earlier row and closes on one
+of the import's own rows -- `{- a` / `b -} import Foo`, the glued-lead shape
+-- survives the removal (its start row is outside the import's range) and
+goes on occupying every row it spans. Freeing those rows anyway shifts
+whatever follows UP INTO the middle of that comment, and the formatter then
+renders the two in the order their collided rows imply rather than the order
+they were written in: `{- a b -}` above `-- c` in the source comes back out
+with `-- c` on top. A comment that changed places with another is exactly the
+class this transform must not produce, and no later pass can undo it -- by
+then the rows say what they say.
+
+So each cut is charged for the rows of its own range that a surviving
+comment still covers, and frees only the rest. The overlap is a MAXIMUM
+rather than a sum: comments cannot interleave, so at most one of them reaches
+into any given cut, and taking the deepest reach counts each shared row once.
+
+Only a comment that STARTS before the import can overlap it. One starting
+inside the import's range is deleted along with it (`commentIsInsideAny`),
+so it holds no rows -- which is why this is charged against the surviving
+comments rather than all of them. -}
+chargeOverlappingComments : Array (Located Ctx.Comment) -> Array Cut -> Array Cut
+chargeOverlappingComments keptComments cuts =
+    Array.map
+        (\cut ->
+            let
+                overlap =
+                    keptComments
+                        |> Array.map
+                            (\c ->
+                                if c.start.row < cut.startRow && c.end.row >= cut.startRow then
+                                    min c.end.row cut.cutoffRow - cut.startRow + 1
+
+                                else
+                                    0
+                            )
+                        |> Array.maximum
+                        |> Maybe.withDefault 0
+            in
+            { cut | freedRows = max 0 (cut.freedRows - overlap) }
+        )
+        cuts
+
+
+{-| One row of the last cut is now occupied by the shield doc, so that cut
+frees one row fewer. The last cut is the last removed import's: imports are
+classified in source order, and no two end on the same row. -}
+spendOneRow : Array Cut -> Array Cut
+spendOneRow cuts =
+    when Array.popLast cuts is
+        Just { last, initial } ->
+            Array.pushLast { last | freedRows = last.freedRows - 1 } initial
+
+        Nothing ->
+            cuts
+
+
+{-| Does the declaration that comes FIRST in the file carry a doc comment?
+That is the only position where a doc comment can slide into the module's
+docs slot once the imports are gone — a doc on any later declaration has a
+declaration in front of it and stays put.
+
+Every declaration kind counts, including the ones that can never carry a doc
+(`binops`): an infix declaration standing first is exactly what stops a
+later declaration's doc from reaching the header. -}
+firstDeclarationHasDocs : Src.Module -> Bool
+firstDeclarationHasDocs modAst =
+    let
+        ports =
+            when modAst.effects is
+                Src.Ports portDecls ->
+                    portDecls
+
+                _ ->
+                    []
+
+        docBearing =
+            Array.map declarationMarker modAst.values
+                ++ Array.map declarationMarker modAst.unions
+                ++ Array.map declarationMarker modAst.aliases
+                ++ Array.map declarationMarker ports
+                ++ Array.map (\locInfix -> { row = locInfix.start.row, hasDocs = False }) modAst.binops
+    in
+    docBearing
+        |> Array.sortBy .row
+        |> Array.first
+        |> Maybe.map .hasDocs
+        |> Maybe.withDefault False
+
+
+{-| A declaration's sort key: the row it starts at — its doc comment's row
+when it has one, since that is what sits closest to the header. -}
+declarationMarker : Src.ModuleDeclaration a -> { row : Int, hasDocs : Bool }
+declarationMarker locDecl =
+    when locDecl.value.docs is
+        Just locDoc ->
+            { row = locDoc.start.row, hasDocs = True }
+
+        Nothing ->
+            { row = locDecl.start.row, hasDocs = False }
+
+
+{-| The last row a removed import takes with it: its own end row, extended
+through its **trailing comment chain**.
+
+A comment trailing an import can itself be trailed, on the row the one before
+it closes on -- `import Foo {- a` / `b -} -- c` (docs/sorting.md, "Trailing a
+comment that trails a name"). Every link is written about the import, so
+every link goes when the import does. Reading only the import's own end row
+kept the links below it, and a link that survives lands directly above
+whichever import follows and becomes ITS leading comment -- silently
+reattached to something the author never wrote it about, which is the very
+thing the `-- removed import Foo` placeholder exists to prevent for the
+comments ABOVE an import. (Found by `gen-random.py`'s remove-unused-imports
+oracle, seeds 41000355 / 41000367.)
+
+A chain continues only onto the row its previous link CLOSES on. A comment
+one row further down starts a new run: it leads whatever comes next, is not
+about this import, and is left alone -- the placeholder rule takes it from
+there. Each step moves strictly down, so the walk terminates. -}
+trailingChainEndRow : Array (Located Ctx.Comment) -> Located Src.Import -> Int
+trailingChainEndRow comments locImport =
+    extendChainFrom comments locImport.end.row
+
+
+{-| The first row a removed import takes with it: its own start row, extended
+BACKWARDS through a comment glued in front of the `import` keyword.
+
+`{- a -} import Foo` is one row, so the comment's start row already falls
+inside the import's range and goes with it. Write the same comment across two
+rows -- `{- a` / `b -} import Foo` -- and its start row falls outside, so it
+survived, and after the run sorted it came to rest directly above a different
+import, reading as that import's lead. Same `LeadsInline` role, opposite fate,
+decided by nothing but how many rows the comment happened to span. Now both go
+with the import they are glued to.
+
+Walks backwards the way `trailingChainEndRow` walks forwards, and for the same
+reason: `{- a` / `b -} {- c` / `d -} import Foo` is a run of glued leads, each
+closing on the row the next one opens on. Each step moves strictly up, so the
+walk terminates. -}
+gluedLeadStartRow : Array (Located Ctx.Comment) -> Located Src.Import -> Int
+gluedLeadStartRow comments locImport =
+    extendGlueBackFrom comments locImport.start.row
+
+
+extendGlueBackFrom : Array (Located Ctx.Comment) -> Int -> Int
+extendGlueBackFrom comments row =
+    let
+        reachesBack =
+            comments
+                |> Array.keepIf (\c -> c.end.row == row && c.start.row < row)
+                |> Array.map (\c -> c.start.row)
+                |> Array.minimum
+    in
+    when reachesBack is
+        Just earlierRow ->
+            extendGlueBackFrom comments earlierRow
+
+        Nothing ->
+            row
+
+
+extendChainFrom : Array (Located Ctx.Comment) -> Int -> Int
+extendChainFrom comments row =
+    let
+        reachesFurther =
+            comments
+                |> Array.keepIf (\c -> c.start.row == row && c.end.row > row)
+                |> Array.map (\c -> c.end.row)
+                |> Array.maximum
+    in
+    when reachesFurther is
+        Just furtherRow ->
+            extendChainFrom comments furtherRow
+
+        Nothing ->
+            row
+
+
 {-| `-- removed import Foo`, or `-- removed import Foo as F` when the import
-had an alias -- never the exposing list. Positioned at the import's own
-original `start` (before any delta is applied -- the caller shifts it like
-any other surviving comment, keyed by this row). -}
-placeholderComment : Located Src.Import -> Located Ctx.Comment
-placeholderComment locImport =
+had an alias -- never the exposing list. Positioned on the FIRST row removed:
+the import's own start row, or the row its glued lead opens on when it had
+one. On the keyword's row instead it left the row above it free, and the
+import below shifted up onto the placeholder's own row. Unshifted -- the
+caller shifts it like any other surviving comment, keyed by this row. -}
+placeholderComment : Int -> Located Src.Import -> Located Ctx.Comment
+placeholderComment row locImport =
     let
         aliasSuffix =
             when locImport.value.alias is
@@ -390,23 +710,26 @@ placeholderComment locImport =
         text =
             " removed import " ++ locImport.value.module_.value ++ aliasSuffix
 
+        startPos =
+            { row = row, col = locImport.start.col }
+
         endPos =
-            { row = locImport.start.row, col = locImport.start.col + 2 + String.count text }
+            { row = row, col = locImport.start.col + 2 + String.count text }
     in
-    { start = locImport.start, end = endPos, value = Ctx.Line text }
+    { start = startPos, end = endPos, value = Ctx.Line text }
 
 
 -- COMMENT FILTERING
 
 
-commentIsInsideAny : Array (Located Src.Import) -> Located Ctx.Comment -> Bool
-commentIsInsideAny removedImports locComment =
+commentIsInsideAny : Array { startRow : Int, endRow : Int } -> Located Ctx.Comment -> Bool
+commentIsInsideAny removedRanges locComment =
     Array.any
-        (\locImport ->
-            locComment.start.row >= locImport.start.row
-                && locComment.start.row <= locImport.end.row
+        (\range ->
+            locComment.start.row >= range.startRow
+                && locComment.start.row <= range.endRow
         )
-        removedImports
+        removedRanges
 
 -- EXPOSING LIST TRIMMING
 --

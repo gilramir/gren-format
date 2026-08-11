@@ -1,0 +1,12 @@
+module DocShieldLaterDeclaration exposing (someFunc, other)
+
+import Unused exposing (Thing)
+
+
+other x =
+    x
+
+
+{-| What this function is for. -}
+someFunc x =
+    x

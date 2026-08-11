@@ -96,6 +96,39 @@ that lived inside a removed import, and leaves a `-- removed import Foo`
 placeholder for a leading comment that would otherwise be orphaned. Removing rows
 means renumbering everything after them → `ShiftPositions`.
 
+Two rules exist because emptying or collapsing the import block changes what
+the *parser* will make of what is left (both found by `gen-random.py`'s
+remove-unused-imports oracle, 2026-08-10):
+
+- `docShield` — the module's docs slot is parsed BEFORE its imports, so a
+  `{-| ... -}` above the first declaration is that declaration's doc only
+  because an import stands between it and the header. Remove the last import
+  and the same comment reparses as the MODULE's doc. When that would happen,
+  the docs slot is handed a `{-| removed import Foo -}` of its own. No output
+  spelling avoids it — the parser skips ordinary comments while looking for
+  the slot, so the `-- removed import Foo` placeholder does not shield it.
+- `gluedLeadStartRow` — the range also runs BACKWARDS through a comment glued
+  to the `import` keyword. A one-row `{- a -} import Foo` was always inside the
+  range; the two-row form was not, so the same `LeadsInline` comment survived
+  or died on span length alone, and a survivor came to rest above a different
+  import. An own-line run above the glued lead still survives, and
+  `hasLeadingRun` is measured against the glued lead's first row so that run
+  still gets its placeholder.
+- `trailingChainEndRow` — a removed import's range runs to the end of its
+  trailing comment CHAIN, not just its own last row. A comment on the row the
+  previous trailing comment closes on is another link written about the same
+  import; left behind, it lands directly above the next import and becomes its
+  lead. A comment a row further down is not a link and is left alone.
+- `chargeOverlappingComments` — a cut does not free a row a surviving comment
+  is still standing on. **Believed unreachable since `gluedLeadStartRow`
+  landed**: the only comment that could start before an import and end inside
+  its rows is a glued lead, which is now removed with it, so nothing survives
+  to overlap. Kept as the guard for the invariant those two range rules have
+  to maintain, not as live behaviour. A block comment glued in front of an import opens on
+  an earlier row and closes on the import's own; freeing that row shifted the
+  next comment up into the middle of it, and the two came out in the wrong
+  order.
+
 ### `ShiftPositions.gren`
 
 A full, from-scratch traversal that adds a constant row delta to every source
@@ -116,12 +149,12 @@ an `Outline`, and renders the three ways that can fail
 CLI integration tests live in `tests/` and are written in **Gren** on top of
 `gilramir/gren-unit-node` (an xUnit-style runner). The test app shells out to the
 built `../app` binary and asserts on its exit code, stdout/stderr, JSON output,
-and in-place file edits — 30 tests across suites `NoArgs`, `ShowFlag`,
+and in-place file edits — 56 tests across suites `NoArgs`, `ShowFlag`,
 `JsonFlags`, `Positional`, `NoArgsFormat`, `RemoveUnusedImportsFlag`.
 
 ```bash
 # From this directory (gren-format/)
-devbox run test                # builds ./app and the test app, runs all 30
+devbox run test                # builds ./app and the test app, runs all 56
 
 # Or from tests/ (rebuilds ../app first, then passes args through to the app):
 cd tests && ./run-tests.sh

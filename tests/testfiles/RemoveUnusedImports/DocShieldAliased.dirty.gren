@@ -1,0 +1,8 @@
+module DocShieldAliased exposing (someFunc)
+
+import Unused as U
+
+
+{-| What this function is for. -}
+someFunc x =
+    x

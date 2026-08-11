@@ -145,13 +145,71 @@ no way to know which name below or above it a comment was actually about:
 
 Removing a whole import removes its trailing comment and any comment inside
 its line range, but leaves an own-line comment directly above it in place,
-with a `-- removed import Foo` placeholder marking what used to be there:
+with a `-- removed import Foo` placeholder marking what used to be there.
+A trailing comment can itself be trailed — the whole chain was written about
+the import, so the whole chain goes with it. A comment a row further down is
+not part of that chain: it belongs to whatever comes next, and stays.
+
+The same holds in front of the import. A comment glued to the `import`
+keyword goes with it, however many rows it spans — `{- unused -} import Foo`
+and its two-row form are treated alike. An own-line comment above that glued
+one is not glued to anything, so it stays, with the usual placeholder below
+it.
 
 | Before | After |
 |---|---|
 | `import Dict`<br>`import Array -- unused, but noted here` | `import Dict` |
 | `import Dict`<br>`-- Array is used for buffering`<br>`import Array` | `import Dict`<br>`-- Array is used for buffering`<br>`-- removed import Array` |
 | `-- Module imports below`<br>`import Dict`<br>`import Array` | `-- Module imports below`<br>`import Dict` |
+| `import Dict`<br>`import Array {- unused`<br>`and it wraps -} -- trailing that` | `import Dict` |
+| `import Dict`<br>`{- unused, and this`<br>`wraps too -} import Array` | `import Dict` |
+| `import Dict`<br>`-- an own-line note`<br>`{- glued -} import Array` | `import Dict`<br>`-- an own-line note`<br>`-- removed import Array` |
+| `import Dict`<br>`import Array {- unused`<br>`and it wraps -}`<br>`-- a row lower, about Set`<br>`import Set` | `import Dict`<br>`-- a row lower, about Set`<br>`import Set` |
+
+### When the last import goes
+
+Gren reads a `{-| ... -}` that comes straight after the module line as the
+module's own documentation. A doc comment on your first declaration is that
+declaration's doc only because the imports sit between it and the module
+line — so removing the *last* import would hand your function's
+documentation to the module, and the function would be left with none.
+
+To keep it where you wrote it, `gren-format` fills the module's doc slot
+with a placeholder naming the import it removed:
+
+```gren
+module Buffer exposing (empty)
+
+import Array
+
+
+{-| An empty buffer. -}
+empty =
+    0
+```
+
+becomes
+
+```gren
+module Buffer exposing (empty)
+
+{-| removed import Array -}
+
+
+{-| An empty buffer. -}
+empty =
+    0
+```
+
+The placeholder is a real doc comment, so **you can replace it with your own
+module documentation** — that is the better thing to have there, and once the
+module has a doc of its own nothing is inserted again.
+
+This only happens when all three are true: no import survives, the module has
+no doc comment of its own, and the first declaration has one. Any one of them
+being false means no placeholder — a module that still imports something, or
+already documents itself, or whose first declaration is undocumented, is left
+alone.
 
 
 ## Formatting pipeline

@@ -1,0 +1,10 @@
+module TrailingCommentChain exposing (someFunc)
+
+{- kept -} import Dict
+import Unused exposing (thing) {- about the unused import
+   and it wraps -} -- and this trails that comment
+import Array
+
+
+someFunc x =
+    Array.append (Dict.empty) x

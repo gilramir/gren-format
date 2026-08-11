@@ -1,0 +1,10 @@
+module GluedLeadSpansRows exposing (someFunc)
+
+{- a comment that
+   opens a row before the import
+   and closes on it -} import Unused
+-- and a comment on the row below
+
+
+someFunc x =
+    x

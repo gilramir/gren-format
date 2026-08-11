@@ -1,0 +1,8 @@
+module DocShieldImportSurvives exposing (someFunc)
+
+import Zebra
+
+
+{-| What this function is for. -}
+someFunc x =
+    Zebra.wrap x

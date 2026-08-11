@@ -1,0 +1,10 @@
+module DocShieldLaterDeclaration exposing (other, someFunc)
+
+
+other x =
+    x
+
+
+{-| What this function is for. -}
+someFunc x =
+    x

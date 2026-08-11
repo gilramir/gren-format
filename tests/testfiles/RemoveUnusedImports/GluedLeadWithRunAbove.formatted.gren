@@ -1,0 +1,9 @@
+module GluedLeadWithRunAbove exposing (someFunc)
+
+-- this run is not glued to anything
+-- removed import Unused
+import Array
+
+
+someFunc x =
+    Array.append x x

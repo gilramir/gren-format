@@ -1,0 +1,8 @@
+module TrailingCommentChainBreaks exposing (someFunc)
+
+-- a row further down, so this leads Array instead
+import Array
+
+
+someFunc x =
+    Array.append x x

@@ -1,0 +1,8 @@
+module DocShield exposing (someFunc)
+
+import Unused exposing (Thing)
+
+
+{-| What this function is for. -}
+someFunc x =
+    x
