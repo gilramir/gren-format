@@ -3,7 +3,7 @@ module RemoveUnusedImports exposing (removeUnusedImports)
 import Array.Builder as Builder
 import Compiler.Ast.Source as Src
 import Compiler.Parse.Context as Ctx
-import Compiler.SourcePosition exposing (Located)
+import Compiler.SourcePosition exposing (Located, Position, Region)
 import ShiftPositions
 import String
 
@@ -25,12 +25,13 @@ so it's always kept.
 A kept import's exposing list is still trimmed name-by-name: any exposed
 name that fails that same "used anywhere" check is dropped from the list
 even though the import itself survives (see `trimExposing`). A comment
-trailing a dropped name on that name's own source row is attached to it —
-same rule as a trailing comment on a whole removed import — and is dropped
-along with it. A comment on its own line (before or after the name, on a
-different row) is not touched; it wasn't written on the name's line, so
-nothing here can say it belongs to that name rather than to something
-else nearby.
+written *between a dropped name and whatever follows it in the list*, on
+that name's own row, is attached to it — same rule as a trailing comment on
+a whole removed import — and is dropped along with it. Nothing else is:
+not a comment on its own line (it wasn't written on the name's line, so
+nothing here can say which nearby name it belongs to), and not a comment
+trailing the whole import past the `)`, which shares the row with every
+name of a single-row exposing list but belongs to none of them.
 
 An import that's an exact duplicate of an earlier import already kept --
 same module, same alias, and the same exposing list, byte-for-byte as
@@ -74,7 +75,7 @@ removeUnusedImports modAst ctx =
         keptComments =
             comments
                 |> Array.keepIf (\c -> not (commentIsInsideAny scan.removedRanges c))
-                |> Array.keepIf (\c -> not (Array.member c.start.row scan.trimmedExposedRows))
+                |> Array.keepIf (\c -> not (Array.any (regionOwnsComment c) scan.trimmedExposedRegions))
 
         chargedCuts =
             chargeOverlappingComments keptComments scan.cuts
@@ -246,7 +247,7 @@ type alias ScanState =
     , removedRanges : Array { startRow : Int, endRow : Int }
     , cuts : Array Cut
     , placeholders : Array (Located Ctx.Comment)
-    , trimmedExposedRows : Array Int
+    , trimmedExposedRegions : Array Region
     , seenIdentities : Array ImportIdentity
     }
 
@@ -278,7 +279,7 @@ initScanState =
     , removedRanges = []
     , cuts = []
     , placeholders = []
-    , trimmedExposedRows = []
+    , trimmedExposedRegions = []
     , seenIdentities = []
     }
 
@@ -409,7 +410,7 @@ classifyStep refs comments item state =
                 withReset
                     { state
                         | keptImports = Array.pushLast trimmed.import_ state.keptImports
-                        , trimmedExposedRows = state.trimmedExposedRows ++ trimmed.droppedExposedRows
+                        , trimmedExposedRegions = state.trimmedExposedRegions ++ trimmed.droppedRegions
                         , seenIdentities = Array.pushLast identity state.seenIdentities
                     }
 
@@ -744,21 +745,21 @@ commentIsInsideAny removedRanges locComment =
 -- renders an import with no exposed names as a bare `import Foo` (no
 -- `exposing` clause at all).
 --
--- A trailing comment on the same source row as a trimmed-away name is
--- attached to that name -- the only thing else on the row -- and is dropped
--- with it (see `trimmedExposedRows` in `removeUnusedImports`). A comment on
--- its own row (before or after the name) is left alone; nothing here can
--- say which nearby name it belongs to once the name it may have been about
--- is gone, so it survives rather than risk deleting a comment about
--- something else.
+-- A comment standing between a trimmed-away name and the next thing in the
+-- list, on that name's own row, is attached to that name and dropped with
+-- it -- see `droppedEntryRegions` and `regionOwnsComment`, which bound
+-- "attached" on both sides. A comment anywhere else is left alone; nothing
+-- here can say which nearby name it belongs to once the name it may have
+-- been about is gone, so it survives rather than risk deleting a comment
+-- about something else.
 --
 -- A name repeated in the same exposing list (`exposing (get, get)`) is
 -- deduped after the used/unused filter: the first occurrence is kept, any
 -- later occurrence of that same name is dropped exactly like an unused one
--- (including the same trailing-comment-on-its-row handling).
+-- (including the same trailing-comment handling).
 
 
-trimExposing : Refs -> Located Src.Import -> { import_ : Located Src.Import, droppedExposedRows : Array Int }
+trimExposing : Refs -> Located Src.Import -> { import_ : Located Src.Import, droppedRegions : Array Region }
 trimExposing refs locImport =
     let
         import_ =
@@ -766,7 +767,7 @@ trimExposing refs locImport =
     in
     when import_.expose is
         Src.Open ->
-            { import_ = locImport, droppedExposedRows = [] }
+            { import_ = locImport, droppedRegions = [] }
 
         Src.Explicit exposed ->
             let
@@ -778,10 +779,63 @@ trimExposing refs locImport =
 
                 deduped =
                     dedupeExposed used
+
+                droppedStarts =
+                    Array.map exposedStart (unused ++ deduped.dropped)
             in
             { import_ = { locImport | value = { import_ | expose = Src.Explicit deduped.kept } }
-            , droppedExposedRows = Array.map exposedRow (unused ++ deduped.dropped)
+            , droppedRegions = droppedEntryRegions locImport.end exposed droppedStarts
             }
+
+
+{-| One region per dropped entry: from that entry's own start up to
+whatever comes next in the exposing list -- the following entry, or the
+import's own end position when it was the last one. `regionOwnsComment`
+decides which comments those regions take with them. -}
+droppedEntryRegions : Position -> Array Src.Exposed -> Array Position -> Array Region
+droppedEntryRegions importEnd exposed droppedStarts =
+    exposed
+        |> Array.indexedMap
+            (\index entry ->
+                { start = exposedStart entry
+                , end =
+                    when Array.get (index + 1) exposed is
+                        Just next ->
+                            exposedStart next
+
+                        Nothing ->
+                            importEnd
+                }
+            )
+        |> Array.keepIf (\region -> Array.member region.start droppedStarts)
+
+
+{-| Does a dropped entry's region own this comment -- i.e. was the comment
+written trailing that name, so that it goes when the name goes?
+
+Both halves of the test are load-bearing, and each rules out a comment the
+region alone would have swallowed:
+
+  - The comment has to start on the **entry's own row**. A region runs all
+    the way to the next entry, so for a list written one name per row it
+    covers the rows in between -- and a comment sitting on its own line
+    down there was not written on the name's line.
+  - The comment has to start **before the region ends**. For the last entry
+    of the list that bound is the import's end, one past the `)`, which is
+    what keeps a comment trailing the whole import -- the common case, and
+    the one a plain row test got wrong -- out of it.
+
+-}
+regionOwnsComment : Located Ctx.Comment -> Region -> Bool
+regionOwnsComment comment region =
+    (comment.start.row == region.start.row)
+        && not (positionBefore comment.start region.start)
+        && positionBefore comment.start region.end
+
+
+positionBefore : Position -> Position -> Bool
+positionBefore a b =
+    a.row < b.row || (a.row == b.row && a.col < b.col)
 
 
 dedupeExposed : Array Src.Exposed -> { kept : Array Src.Exposed, dropped : Array Src.Exposed }
@@ -806,19 +860,19 @@ dedupeExposed exposedList =
         |> (\acc -> { kept = acc.kept, dropped = acc.dropped })
 
 
--- The source row an `Exposed` entry's name starts on -- used to find a
--- trailing comment on that same row when the entry is dropped.
-exposedRow : Src.Exposed -> Int
-exposedRow exposed =
+-- The source position an `Exposed` entry starts at -- the anchor of the
+-- region a dropped entry takes its trailing comment from.
+exposedStart : Src.Exposed -> Position
+exposedStart exposed =
     when exposed is
         Src.ExposedLower locName ->
-            locName.start.row
+            locName.start
 
         Src.ExposedUpper { name } ->
-            name.start.row
+            name.start
 
         Src.ExposedOperator locOp ->
-            locOp.start.row
+            locOp.start
 
 
 -- IMPORT USAGE CHECK

@@ -1,0 +1,10 @@
+module TrimmedExposingTrailingComment exposing (x)
+
+import Basics exposing (max {- about max -}, min {- about min -}) {- about the whole line
+   , second row -} {- chained link -}
+import Dict exposing (get)
+
+
+x : Dict.Dict String Int -> Maybe Int
+x d =
+    max 1 (get "a" d)
