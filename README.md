@@ -30,17 +30,20 @@ If either check fails, it reports a bug to the user instead of overwriting the f
 
 One function, showing several rules at once: a `let` with multiple bindings,
 a pipeline, a binary-operator chain that breaks at its loosest operators, an
-`if`, a `when`, and a record update. (`order` is a record with `isMember`,
-`hasCoupon`, `status`, and `total` fields; `Status` is a custom type that
-includes `Cancelled`.)
+`if`, a `when`, a record update, and all three kinds of comment. (`order` is a
+record with `isMember`, `hasCoupon`, `status`, and `total` fields; `Status` is
+a custom type that includes `Cancelled`.)
 
 ```gren
+{- Only members and coupon holders get the discount, and it always
+   applies to the pre-tax subtotal.
+-}
 summarize : Order -> Array Float -> Order
 summarize order prices =
     let
         subtotal =
             prices
-                |> Array.keepIf (\price -> price > 0)
+                |> Array.keepIf (\price -> price > 0) -- refunds are recorded as negatives
                 |> Array.foldl (+) 0
 
         eligible =
@@ -49,7 +52,7 @@ summarize order prices =
 
         discount =
             if eligible then
-                subtotal * 0.1
+                subtotal * {- ten percent -} 0.1
 
             else
                 0
@@ -81,6 +84,14 @@ A few things worth noticing:
   the other branch's two fields were written across rows and stay that way.
   Neither is about length; it's however the author wrote it (see
   [Record updates](https://github.com/gilramir/gren-format-lib/blob/main/docs/formatterRules.md#record-updates)).
+- All three comments stay exactly where they were written. The `{- ... -}`
+  above the signature keeps its own lines and its inner indentation; the `--`
+  note stays trailing on the pipeline step it was written on, rather than being
+  pushed to a line of its own; and the one-line `{- ten percent -}` sits *inside*
+  the expression, between the `*` and its right operand, so the line it's on has
+  to stay flat — a comment is never a reason to break a line, and a line is
+  never re-broken around a comment (see
+  [Comments](https://github.com/gilramir/gren-format-lib/blob/main/docs/formatterRules.md#comments)).
 
 Every one of these decisions follows from how the code was written, not from
 any line-width target — see the
