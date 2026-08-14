@@ -22,12 +22,34 @@ digraph StandardPipeline {
     diskwrite [label="write to disk"];
     noopWrite [label="already matches on disk\n(no write)"];
 
-    // Process nodes
+    // Process nodes. The two format passes live in the gren-format-lib
+    // package, so each is drawn inside a labelled box of its own.
     node [shape=box, style="rounded,filled", fillcolor="#dbe9f7", color="#3f6fa8", fontcolor="#1c2b3a"];
     parse   [label="parse"];
-    format1 [label="format\n(AST → LPT → pretty-printer)"];
+
+    subgraph cluster_lib_format1 {
+        label="gren-format-lib";
+        labeljust=l;
+        fontsize=9;
+        fontcolor="#3f6fa8";
+        color="#3f6fa8";
+        style="rounded,dashed";
+        margin=8;
+        format1 [label="format\n(AST → LPT → pretty-printer)"];
+    }
+
     reparse [label="reparse"];
-    format2 [label="format again\n(ast2 + ctx2)"];
+
+    subgraph cluster_lib_format2 {
+        label="gren-format-lib";
+        labeljust=l;
+        fontsize=9;
+        fontcolor="#3f6fa8";
+        color="#3f6fa8";
+        style="rounded,dashed";
+        margin=8;
+        format2 [label="format again\n(ast2 + ctx2)"];
+    }
 
     // Decision nodes
     node [shape=diamond, style=filled, fillcolor="#fdf3d0", color="#b8952f", fontcolor="#1c2b3a"];
@@ -68,7 +90,8 @@ digraph StandardPipeline {
 
     { rank=same; ast1; parseFail }
     { rank=same; ast2; reparseFail }
-    { rank=same; format2; mismatchFail }
+    // No rank=same for format2/mismatchFail: format2 sits in a cluster, and a
+    // same-rank tie to a node outside it makes graphviz drop the cluster box.
     { rank=same; checkOnDisk; idemFail }
     { rank=same; diskwrite; noopWrite }
 }
