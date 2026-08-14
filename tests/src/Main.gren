@@ -5,7 +5,7 @@ module Main exposing (main)
 
 Each Python `TestCase` class becomes a `U.suite`, one per file (see
 `NoArgsTests`, `ShowFlagTests`, `JsonFlagsTests`, `PositionalTests`,
-`NoArgsFormatTests`, `RemoveUnusedImportsTests`). Shared fixtures/helpers
+`NoArgsFormatTests`, `RemoveUnusedImportsTests`, `ShowProgressTests`). Shared fixtures/helpers
 (spawning the app, scratch dirs, `--show`/JSON assertions) live in
 `Support`. The app binary is located once per suite in `setUpSuite`; suites
 that need scratch space make a fresh temp dir per test in `setUp` and
@@ -28,6 +28,7 @@ import Node
 import PositionalTests exposing (positionalSuite)
 import RemoveUnusedImportsTests exposing (removeUnusedImportsFlagSuite)
 import ShowFlagTests exposing (showFlagSuite)
+import ShowProgressTests exposing (showProgressSuite)
 import Test.Runner.UnitNode as U
 
 
@@ -53,5 +54,6 @@ main =
                 , positionalSuite perms
                 , noArgsFormatSuite perms
                 , removeUnusedImportsFlagSuite perms
+                , showProgressSuite perms
                 ]
         }

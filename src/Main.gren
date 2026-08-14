@@ -27,6 +27,7 @@ import Terminal.ProjectOutline as ProjectOutline
 type alias FormatFlags =
     { files : Array Path
     , removeUnusedImports : Bool
+    , showProgress : Bool
     , show : Maybe Path
     , showFirst : Maybe Path
     , preAst : Maybe Path
@@ -56,9 +57,10 @@ command =
             }
     , flags =
         AP.initFlags
-            (\removeUnusedImports show showFirst preAst preContext postAst postContext lpt box auditPredicates decisions ->
+            (\removeUnusedImports showProgress show showFirst preAst preContext postAst postContext lpt box auditPredicates decisions ->
                 { files = []
                 , removeUnusedImports = removeUnusedImports
+                , showProgress = showProgress
                 , show = show
                 , showFirst = showFirst
                 , preAst = preAst
@@ -72,6 +74,7 @@ command =
                 }
             )
             |> AP.toggle (AP.LongOnly "remove-unused-imports") "Remove unused imports while formatting"
+            |> AP.toggle (AP.LongOnly "show-progress") "Print each file as it is formatted, then its outcome on the same line"
             |> AP.flag (AP.LongOnly "show") AP.pathParser "Parse and pretty-print a single file to stdout without modifying it"
             |> AP.flag (AP.LongOnly "show-first") AP.pathParser "Like --show but print the FIRST format without the idempotency guard (debug: inspect a non-idempotent first pass)"
             |> AP.flag (AP.LongOnly "pre-ast") AP.pathParser "Parse a single file and print its AST as JSON to stdout"
@@ -127,6 +130,15 @@ onCommand env context flags =
             , fsPermission = context.fs
             , removeUnusedImports = flags.removeUnusedImports
             }
+
+        -- Progress is a property of the modes that walk several files; the
+        -- single-file inspection flags ignore it.
+        progress =
+            if flags.showProgress then
+                Just env.stdout
+
+            else
+                Nothing
     in
     if not (Array.isEmpty flags.files) then
         let
@@ -146,7 +158,7 @@ onCommand env context flags =
             Task.fail (Program.ExitMessage "Cannot combine file path arguments with flags. Use --help for options.")
 
         else
-            Format.formatPaths { fsPermission = context.fs, removeUnusedImports = flags.removeUnusedImports } flags.files
+            Format.formatPaths { fsPermission = context.fs, removeUnusedImports = flags.removeUnusedImports, progress = progress } flags.files
                 |> Task.mapError (\err -> Program.ExitMessage (reportToString context.useColor (Format.prettifyError err)))
                 |> Task.andThen
                     (\{ rewritten, skipped } ->
@@ -212,6 +224,12 @@ formatProject env context flags =
                     , projectPath = projectPath
                     , outline = outline
                     , removeUnusedImports = flags.removeUnusedImports
+                    , progress =
+                        if flags.showProgress then
+                            Just env.stdout
+
+                        else
+                            Nothing
                     }
                     |> Task.mapError (\err -> Program.ExitMessage (reportToString context.useColor (Format.prettifyError err)))
             )

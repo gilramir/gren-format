@@ -7,6 +7,7 @@ module Support exposing
     , expectJsonArray
     , expectJsonHasFields
     , expectJsonValid
+    , expectNotContains
     , helloFixture
     , locateApp
     , makeProject
@@ -119,6 +120,15 @@ expectContains needle haystack =
 
     else
         Expect.fail ("expected output to contain " ++ Debug.toString needle ++ "\n--- actual ---\n" ++ haystack)
+
+
+expectNotContains : String -> String -> Expectation
+expectNotContains needle haystack =
+    if String.contains needle haystack then
+        Expect.fail ("expected output NOT to contain " ++ Debug.toString needle ++ "\n--- actual ---\n" ++ haystack)
+
+    else
+        Expect.pass
 
 
 {-| Pass iff `out` parses as JSON *and* every named field is present.

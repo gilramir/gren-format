@@ -1,0 +1,111 @@
+module ShowProgressTests exposing (showProgressSuite)
+
+{-| CLI integration tests for `--show-progress`, the per-file progress report
+on the two modes that format files in place (the no-argument project run and
+positional path arguments).
+
+The shape under test is one line per file: the path is written *before* the
+file is parsed, with no newline, and the outcome is appended to that same line
+once the file is done -- so a run that spends a second on one module says which
+module it is spending it on. These tests can only see the finished line; that
+the name is flushed ahead of the work is a property of the write ordering in
+`Format.withProgress`.
+
+@docs showProgressSuite
+-}
+
+import Expect
+import FileSystem.Path as Path
+import Support exposing (Perms, dirtyHello, makeScratch, readBack, removeScratch)
+import Task
+import Test.Runner.UnitNode as U
+
+
+{-| -}
+showProgressSuite : Perms -> U.Suite
+showProgressSuite perms =
+    U.suite
+        { name = "ShowProgress"
+        , setUpSuite = Support.locateApp perms
+        , tearDownSuite = U.noTearDown
+        , setUp = makeScratch perms
+        , tearDown = removeScratch perms
+        , tests =
+            [ U.test "project run names each file and its outcome on one line" <|
+                \s ->
+                    Support.makeProject perms s.dir dirtyHello
+                        |> Task.andThen (\_ -> runProject perms s [ "--show-progress" ])
+                        |> Task.map
+                            (\r ->
+                                Expect.all
+                                    [ \_ -> Expect.equal 0 r.exitCode
+                                    , \_ -> Support.expectContains "src/Hello.gren ... reformatted" r.stdout
+                                    , \_ -> Support.expectContains "1 files reformatted" r.stdout
+                                    ]
+                                    {}
+                            )
+            , U.test "an already-formatted file says so on its own line" <|
+                \s ->
+                    Support.makeProject perms s.dir dirtyHello
+                        |> Task.andThen (\_ -> runProject perms s [ "--show-progress" ])
+                        |> Task.andThen (\_ -> runProject perms s [ "--show-progress" ])
+                        |> Task.map (\r -> Support.expectContains "src/Hello.gren ... already formatted" r.stdout)
+            , U.test "the summary does not repeat paths the progress lines already named" <|
+                \s ->
+                    -- Without the flag the run lists every rewritten path after
+                    -- the fact; with it, that list is the same names twice.
+                    Support.makeProject perms s.dir dirtyHello
+                        |> Task.andThen (\_ -> runProject perms s [ "--show-progress" ])
+                        |> Task.map (\r -> Expect.equal 1 (occurrences "Hello.gren" r.stdout))
+            , U.test "no progress lines without the flag" <|
+                \s ->
+                    Support.makeProject perms s.dir dirtyHello
+                        |> Task.andThen (\_ -> runProject perms s [])
+                        |> Task.map (\r -> Support.expectNotContains " ... " r.stdout)
+            , U.test "positional paths get progress lines too" <|
+                \s ->
+                    let
+                        file =
+                            Path.append (Path.fromPosixString "Hello.gren") s.dir
+                    in
+                    Support.writeText perms file dirtyHello
+                        |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Nothing } [ "--show-progress", Path.toPosixString file ])
+                        |> Task.andThen (\r -> readBack perms file |> Task.map (\after -> { r = r, after = after }))
+                        |> Task.map
+                            (\res ->
+                                Expect.all
+                                    [ \_ -> Expect.equal 0 res.r.exitCode
+                                    , \_ -> Support.expectContains (Path.toPosixString (Path.append (Path.fromPosixString "Hello.gren") s.dir) ++ " ... reformatted") res.r.stdout
+                                    , \_ -> Support.expectContains "\n\n\n" res.after
+                                    ]
+                                    {}
+                            )
+            , U.test "a file that does not parse closes its own line before the run stops" <|
+                \s ->
+                    let
+                        file =
+                            Path.append (Path.fromPosixString "Broken.gren") s.dir
+                    in
+                    Support.writeText perms file "module Broken exposing (f)\n\n\nf =\n    ( 1\n"
+                        |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Nothing } [ "--show-progress", Path.toPosixString file ])
+                        |> Task.map
+                            (\r ->
+                                Expect.all
+                                    [ \_ -> Expect.notEqual 0 r.exitCode
+                                    , \_ -> Support.expectContains "Broken.gren ... parse error" r.stdout
+                                    , \_ -> Support.expectContains "FAILED TO PARSE" r.stderr
+                                    ]
+                                    {}
+                            )
+            ]
+        }
+
+
+runProject : Perms -> Support.Scratch -> Array String -> Task.Task String Support.RunResult
+runProject perms s args =
+    Support.runApp perms s.appPath { cwd = Just (Path.toPosixString s.dir) } args
+
+
+occurrences : String -> String -> Int
+occurrences needle haystack =
+    Array.length (String.split needle haystack) - 1

@@ -133,6 +133,26 @@ gren-format --remove-unused-imports src/Main.gren
 gren-format --remove-unused-imports --show src/Main.gren
 ```
 
+Watch a large project go by, one file at a time:
+
+```
+gren-format --show-progress
+```
+
+Each file's name is printed *before* it is parsed, with no newline, and its
+outcome — `reformatted`, `already formatted`, `parse error`, `format error` —
+lands on that same line once the file is done:
+
+```
+src/Formatter/Render/FlowPolicy.gren ... already formatted
+src/Formatter/Render/MakeRenderBox.gren ... reformatted
+2 files reformatted, 24 files already formatted.
+```
+
+So a run that spends a second on one module says which module it is spending
+it on. `--show-progress` applies to both in-place modes (the no-argument
+project run and positional paths); the single-file debug flags ignore it.
+
 ## Unused import analysis
 
 `--remove-unused-imports` drops an import if nothing in the module

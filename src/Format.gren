@@ -1,6 +1,7 @@
 module Format exposing
     ( Config
     , Error(..)
+    , Progress
     , auditPredicatesFile
     , boxFile
     , decisionsFile
@@ -53,7 +54,17 @@ type alias Config =
     , projectPath : Path
     , outline : Outline
     , removeUnusedImports : Bool
+    , progress : Progress
     }
+
+
+{-| Where per-file progress goes, for the two modes that format files in place.
+`Nothing` is the default -- say nothing until the run is over. `Just stdout`
+(behind `--show-progress`) names each file *before* the formatter starts on it,
+so a multi-second run on a large project visibly makes progress instead of
+sitting silent. -}
+type alias Progress =
+    Maybe (Stream.Writable Bytes)
 
 
 type Error
@@ -266,8 +277,98 @@ atomicWrite fsPermission path pretty =
         |> Task.map (\_ -> {})
 
 
+{-| Print the file's name with **no newline** and nothing after it, then flush,
+so the name is on screen for as long as that file is being parsed and
+formatted. `progressEnd` closes the line with the outcome. -}
+progressStart : Progress -> String -> Task Error {}
+progressStart progress name =
+    when progress is
+        Nothing ->
+            Task.succeed {}
+
+        Just stdout ->
+            Stream.Log.string stdout (name ++ " ... ")
+
+
+{-| Close the line `progressStart` opened, with what became of the file. -}
+progressEnd : Progress -> String -> Task Error {}
+progressEnd progress outcome =
+    when progress is
+        Nothing ->
+            Task.succeed {}
+
+        Just stdout ->
+            Stream.Log.line stdout outcome
+
+
+{-| Run one file's format task between the two halves of its progress line.
+
+The error path closes the line too, and only then re-fails: a run that stops on
+a bad file otherwise leaves that file's name dangling with no outcome, which
+reads as "still working on it" -- exactly the ambiguity the flag exists to
+remove. The full report still follows on stderr. -}
+withProgress : Progress -> String -> (a -> String) -> Task Error a -> Task Error a
+withProgress progress name outcomeOf task =
+    progressStart progress name
+        |> Task.andThen (\_ -> task)
+        |> Task.andThen
+            (\value ->
+                progressEnd progress (outcomeOf value)
+                    |> Task.map (\_ -> value)
+            )
+        |> Task.onError
+            (\err ->
+                progressEnd progress (errorOutcome err)
+                    |> Task.andThen (\_ -> Task.fail err)
+            )
+
+
+{-| The outcome of a file that came out the other side: it either needed
+rewriting or it did not. -}
+rewriteOutcome : Bool -> String
+rewriteOutcome wasRewritten =
+    if wasRewritten then
+        "reformatted"
+
+    else
+        "already formatted"
+
+
+{-| The outcome of a file the formatter could not finish -- one short phrase for
+the progress line; `prettifyError` has the details. -}
+errorOutcome : Error -> String
+errorOutcome error =
+    when error is
+        ParseFailure _ ->
+            "parse error"
+
+        ShowReadFailure _ ->
+            "read error"
+
+        OverwriteFailure _ ->
+            "write error"
+
+        PrettyPrintFailure _ ->
+            "format error"
+
+        CheckReparseFailed _ ->
+            "format error"
+
+        AstMismatchAfterFormat _ ->
+            "format error"
+
+        NotIdempotent _ ->
+            "format error"
+
+        FailedToFindSources _ ->
+            "error"
+
+        NothingToFormat ->
+            "error"
+
+
 run : Config -> Task Error String
-run { fsPermission, pathToString, projectPath, outline, removeUnusedImports } =
+run { fsPermission, pathToString, projectPath, outline, removeUnusedImports, progress } =
     Outline.findSourceFiles fsPermission outline projectPath
         |> Task.mapError FailedToFindSources
         |> Task.andThen
@@ -287,34 +388,54 @@ run { fsPermission, pathToString, projectPath, outline, removeUnusedImports } =
 
                                         normalized =
                                             normalizeLineEndings source
+
+                                        formatOne =
+                                            when formatAndVerify removeUnusedImports relPath normalized is
+                                                Err err ->
+                                                    Task.fail err
+
+                                                Ok pretty ->
+                                                    -- Against the RAW bytes, deliberately: a file
+                                                    -- whose only defect is its line endings has to be
+                                                    -- rewritten, because `--show` would print it with
+                                                    -- `\n` and in-place must land what `--show` prints.
+                                                    -- Compared against the normalized text it looks
+                                                    -- already-formatted and keeps its `\r`s forever.
+                                                    if pretty ++ "\n" == source then
+                                                        Task.succeed False
+
+                                                    else
+                                                        atomicWrite fsPermission path pretty
+                                                            |> Task.map (\_ -> True)
                                     in
-                                    when formatAndVerify removeUnusedImports relPath normalized is
-                                        Err err ->
-                                            Task.fail err
+                                    withProgress progress (pathToString relPath) rewriteOutcome formatOne
+                                        |> Task.map
+                                            (\wasRewritten ->
+                                                if wasRewritten then
+                                                    { acc | rewritten = Array.pushLast (pathToString path) acc.rewritten }
 
-                                        Ok pretty ->
-                                            -- Against the RAW bytes, deliberately: a file
-                                            -- whose only defect is its line endings has to be
-                                            -- rewritten, because `--show` would print it with
-                                            -- `\n` and in-place must land what `--show` prints.
-                                            -- Compared against the normalized text it looks
-                                            -- already-formatted and keeps its `\r`s forever.
-                                            if pretty ++ "\n" == source then
-                                                Task.succeed { acc | skipped = acc.skipped + 1 }
-
-                                            else
-                                                atomicWrite fsPermission path pretty
-                                                    |> Task.map
-                                                        (\_ ->
-                                                            { acc | rewritten = Array.pushLast (pathToString path) acc.rewritten }
-                                                        )
+                                                else
+                                                    { acc | skipped = acc.skipped + 1 }
+                                            )
                             )
                             previous
 
+                    reportedProgress =
+                        when progress is
+                            Just _ ->
+                                True
+
+                            Nothing ->
+                                False
+
                     summarize { rewritten, skipped } =
                         let
+                            -- With `--show-progress` every one of these paths has
+                            -- already been printed, on its own line, next to what
+                            -- happened to it; listing them again would just be the
+                            -- same names twice.
                             paths =
-                                if Array.length rewritten > 0 then
+                                if not reportedProgress && Array.length rewritten > 0 then
                                     String.join "\n" rewritten ++ "\n"
 
                                 else
@@ -363,14 +484,19 @@ formatFile { fsPermission, removeUnusedImports } path =
 to its direct Gren source files (`expandPathToFiles`), any other path is that
 file — overwriting each in place. Returns how many were rewritten vs. already
 formatted. -}
-formatPaths : { fsPermission : FileSystem.Permission, removeUnusedImports : Bool } -> Array Path -> Task Error { rewritten : Int, skipped : Int }
+formatPaths : { fsPermission : FileSystem.Permission, removeUnusedImports : Bool, progress : Progress } -> Array Path -> Task Error { rewritten : Int, skipped : Int }
 formatPaths config paths =
     let
+        fileConfig =
+            { fsPermission = config.fsPermission
+            , removeUnusedImports = config.removeUnusedImports
+            }
+
         formatOne filePath innerTask =
             innerTask
                 |> Task.andThen
                     (\counts ->
-                        formatFile config filePath
+                        withProgress config.progress (Path.toPosixString filePath) rewriteOutcome (formatFile fileConfig filePath)
                             |> Task.map
                                 (\wasRewritten ->
                                     if wasRewritten then

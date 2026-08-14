@@ -38,6 +38,7 @@ order:
 |---|---|---|
 | `files` | *(positional)* | Files/directories to format in place |
 | `removeUnusedImports` | `--remove-unused-imports` | Also strip unused imports while formatting |
+| `showProgress` | `--show-progress` | Print each file's path before formatting it, and its outcome on the same line (in-place modes only) |
 | `show` | `--show <path>` | Parse + pretty-print one file to stdout (no write) |
 | `preAst` | `--pre-ast <path>` | Print the original AST + parse context as JSON |
 | `preContext` | `--pre-context <path>` | Print just the original parse `Context` (comments) as JSON |
@@ -66,6 +67,22 @@ to AST + parse context, taking the error constructor) — and the format core:
 `PrettyPrintFailure`, `OverwriteFailure`, `ShowReadFailure`, `CheckReparseFailed`,
 `AstMismatchAfterFormat`, `NotIdempotent`. `prettifyError` renders each to a
 `Cli.Report.Report`.
+
+### Progress reporting
+
+`Progress` is a `Maybe (Stream.Writable Bytes)` on both in-place entry points —
+`Nothing` (quiet) unless `--show-progress` passes stdout in. `withProgress`
+wraps one file's task between the two halves of its line: `progressStart`
+writes `<path> ... ` with **no newline** before the file is read, so the name is
+on screen for as long as the formatter is working on it, and `progressEnd`
+closes the line with the outcome (`rewriteOutcome` for a file that finished,
+`errorOutcome` for one that did not — `parse error`, `format error`, `read
+error`, `write error`). The error path closes the line before re-failing, so a
+run that stops on a bad file does not leave that file's name dangling.
+
+A progress run also drops the list of rewritten paths that normally precedes
+`run`'s summary line: every one of those paths has already been printed next to
+what happened to it.
 
 ## `RemoveUnusedImports.gren`
 
