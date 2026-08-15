@@ -52,12 +52,20 @@ this CLI's npm version.
 ./build.sh   # devbox run build; produces ./app, chmod +x'd
 ```
 
-This needs the sibling `../gren-format-lib` checkout: `gren.json` depends on it
-as `"gilramir/gren-format-lib": "local:../gren-format-lib"`. That is a
-*build*-time dependency only — the formatter is compiled into `app`, so nothing
-about it reaches the published tarball. But it does mean `npm publish` cannot be
-run from a bare clone of this repo alone, since `prepublishOnly` runs
-`./build.sh`.
+`gren.json` depends on the formatter as a *published* package —
+`"gilramir/gren-format-lib": "1.0.0"` — not as a `local:../gren-format-lib`
+checkout, so a bare clone of this repo builds on its own and `npm publish` (whose
+`prepublishOnly` runs `./build.sh`) works without any sibling directory. It is a
+build-time dependency either way: the formatter is compiled into `app`, so
+nothing about it reaches the published tarball.
+
+The tradeoff is that the version pinned there is what actually gets compiled in.
+If you are releasing CLI changes that depend on unreleased formatter work, the
+library has to be published to the Gren registry and the pin bumped here *first*
+— otherwise you ship a CLI built against the older formatter without noticing.
+Switching the pin back to `local:../gren-format-lib` while developing is fine,
+but never publish on a `local:` pin: the tarball would then depend on whatever
+happened to be in your working copy.
 
 ## Test the packaged tarball locally
 
@@ -103,6 +111,8 @@ npm uninstall -g gren-format
 
 ## Publish
 
+Every release *after* the first:
+
 ```bash
 npm version <patch|minor|major> --no-git-tag-version   # bumps package.json only
 ./build.sh                        # regenerates src/Version.gren + rebuilds ./app
@@ -118,5 +128,20 @@ would capture the *old* `src/Version.gren` — the regeneration only happens on 
 next build. Bumping, building, then committing and tagging keeps the tagged tree
 equal to what was published.
 
-First publish only: `npm login`, and note the name `gren-format` was unclaimed
-on the registry as of the initial release.
+The bump comes first because npm rejects a re-publish of a version already on the
+registry, so each release needs a number it has not seen.
+
+**First publish only.** Skip the `npm version` step entirely: `package.json`
+already says `1.0.0` and that is the version to ship, so bumping would publish
+`1.0.1` and burn `1.0.0` for nothing. Run `npm login` first if `npm whoami`
+does not already print your account, then:
+
+```bash
+./build.sh                        # regenerates src/Version.gren + rebuilds ./app
+./app --version                   # sanity: 1.0.0
+git tag 1.0.0
+npm publish
+git push --follow-tags
+```
+
+The name `gren-format` was unclaimed on the registry as of the initial release.

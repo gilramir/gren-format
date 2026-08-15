@@ -143,11 +143,12 @@ an `Outline`, and renders the three ways that can fail
 
 ## Dependencies
 
-All local siblings except the published Gren packages:
+Every dependency is a published Gren package pinned by version in `gren.json` —
+there are no `local:` sibling pins, so a bare clone builds on its own:
 
-- `gilramir/gren-argparse` (`../gren-argparse`) — `Argparse.Parser`,
+- `gilramir/gren-argparse` (`2.0.0`) — `Argparse.Parser`,
   `Argparse.PrettyPrinter`, `Argparse.Program`
-- `gilramir/gren-format-lib` (`local:../gren-format-lib`) — the formatter
+- `gilramir/gren-format-lib` (`1.0.0`) — the formatter
   (`Formatter.Logical.MakeLogical`, `Formatter.Render`, `Formatter.Logical.LPTJson`)
   plus `Compiler.Ast.Compare`, `Compiler.Ast.Source.Json`,
   `Compiler.Parse.Context.Json`
