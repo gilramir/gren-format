@@ -14,10 +14,19 @@ the format is in a style that helps diffs stay focused on real
 changes. `gren-format`'s output is very similar to that of `elm-format`, but
 not identical.
 
+Links:
+ * The application
+   * [gren-format npmjs page](https://www.npmjs.com/package/gren-format)
+   * [gren-format GitHub page](https://github.com/gilramir/gren-format)
+ * The library
+   * [gren-format-lib Gren package page](https://packages.gren-lang.org/package/gilramir/gren-format-lib)
+   * [gren-format-lib GitHub page](https://github.com/gilramir/gren-format-lib)
+   * [Gren Formatter Library Documentation](https://github.com/gilramir/gren-format-lib/blob/main/docs/index.md)
+
 This README documents the usage of the tool.  The actual formatting rules
 are documented in the
-[Gren Formatter Library](https://github.com/gilramir/gren-format-lib), the code
-which does the actual formatting and can be used in other Gren programs.
+[Gren Formatter Library Documentation](https://github.com/gilramir/gren-format-lib),
+the code which does the actual formatting and can be used in other Gren programs.
 
 The formatter is very careful when changing your code.
 * It re-parses its output to ensure it didn't change the meaning of your code.
@@ -26,7 +35,7 @@ The formatter is very careful when changing your code.
 
 If either check fails, it reports a bug to the user instead of overwriting the file.
 
-## A formatted example
+## A real example
 
 One function, showing several rules at once: a `let` with multiple bindings,
 a pipeline, a binary-operator chain that breaks at its loosest operators, an
@@ -153,7 +162,7 @@ So a run that spends a second on one module says which module it is spending
 it on. `--show-progress` applies to both in-place modes (the no-argument
 project run and positional paths); the single-file debug flags ignore it.
 
-## Unused import analysis
+## Removing unused import statements
 
 `--remove-unused-imports` drops an import if nothing in the module
 references it, and trims an exposing list name by name the same way. It's
@@ -243,7 +252,7 @@ already documents itself, or whose first declaration is undocumented, is left
 alone.
 
 
-## Formatting pipeline
+## The Formatting Pipeline
 
 Every file goes through a format-and-verify pipeline before anything is
 written to disk. The pipeline runs two full format passes and checks the
@@ -287,7 +296,9 @@ on the raw AST and do not.
 ## Getting help / reporting bugs
 
 Found a bug, or have formatting output that looks wrong? Open an issue at
-[github.com/gilramir/gren-format/issues](https://github.com/gilramir/gren-format/issues).
+[github.com/gilramir/gren-format/issues](https://github.com/gilramir/gren-format/issues) or
+[https://github.com/gilramir/gren-format-lib/issues](https://github.com/gilramir/gren-format-lib/issues).
+It doesn't matter which GitHub project you file it in; we're flexible.
 
 Read more about the [Gren Community](https://gren-lang.org/community) and how
 to join the Discord server, the official meeting place for people who
