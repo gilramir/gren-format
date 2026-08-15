@@ -36,7 +36,7 @@ import Formatter.Audit.DecisionTrace as DecisionTrace
 import Formatter.Audit.PredicateAgreement as PredicateAgreement
 import Formatter.Logical exposing (makeLogicalPrintingTree)
 import Formatter.Logical.LPTJson as LPTJson
-import Formatter.Render exposing (lptToBoxJson, makePrettyResult)
+import Formatter.Render exposing (lptToBoxJson, renderRoot)
 import Json.Encode as Json
 import RemoveUnusedImports as RUI
 import Stream
@@ -153,7 +153,7 @@ renderModule path module_ context =
     in
     makeLogicalPrintingTree module_ context
         |> Result.mapError wrapErr
-        |> Result.andThen (\lpt -> makePrettyResult lpt |> Result.mapError wrapErr)
+        |> Result.andThen (\lpt -> renderRoot lpt |> Result.mapError wrapErr)
 
 
 {-| Full format-and-verify pipeline:
@@ -754,7 +754,7 @@ decisionStabilityReport path source =
                     (\lpt ->
                         Result.map2
                             (\pretty decls -> { pretty = pretty, decls = decls })
-                            (makePrettyResult lpt)
+                            (renderRoot lpt)
                             (DecisionTrace.traceDeclarations lpt)
                             |> Result.mapError wrapErr
                     )

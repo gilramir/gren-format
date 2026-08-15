@@ -61,7 +61,7 @@ to AST + parse context, taking the error constructor) — and the format core:
   reparse → AST-compare → render again → idempotency-compare. Returns the
   canonical string, or an `Error` if any check fails.
 - `renderModule` — build the LPT (`makeLogicalPrintingTree`) and render it
-  (`makePrettyResult`), shared by `formatAndVerify` and `postAstFile`.
+  (`renderRoot`), shared by `formatAndVerify` and `postAstFile`.
 
 `Error` variants: `FailedToFindSources`, `NothingToFormat`, `ParseFailure`,
 `PrettyPrintFailure`, `OverwriteFailure`, `ShowReadFailure`, `CheckReparseFailed`,
