@@ -4,3 +4,5 @@ app
 *.js
 docs.json
 __pycache__/
+*.tgz
+node_modules/

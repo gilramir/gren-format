@@ -1,0 +1,34 @@
+{
+  "name": "gren-format",
+  "version": "1.0.0",
+  "description": "A code formatter for the Gren programming language",
+  "scripts": {
+    "prepublishOnly": "./build.sh"
+  },
+  "bin": {
+    "gren-format": "app"
+  },
+  "files": [
+    "app"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gilramir/gren-format.git"
+  },
+  "keywords": [
+    "gren",
+    "format",
+    "formatter",
+    "pretty-printer",
+    "elm-format"
+  ],
+  "author": "Gilbert Ramirez <gram@alumni.rice.edu>",
+  "license": "BSD-3-Clause",
+  "bugs": {
+    "url": "https://github.com/gilramir/gren-format/issues"
+  },
+  "homepage": "https://github.com/gilramir/gren-format#readme",
+  "engines": {
+    "node": ">= 18"
+  }
+}

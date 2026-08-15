@@ -22,6 +22,7 @@ import Stream.Log
 import Task exposing (Task)
 import Terminal
 import Terminal.ProjectOutline as ProjectOutline
+import Version
 
 
 type alias FormatFlags =
@@ -96,7 +97,7 @@ main : Node.SimpleProgram a
 main =
     Program.runRootWithContext
         { name = "gren-format"
-        , version = "1.0.0"
+        , version = Version.version
         , command = command
         , init =
             \_env toProgram ->
