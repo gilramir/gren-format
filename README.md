@@ -19,7 +19,7 @@ are documented in the
 [Gren Formatter Library](https://github.com/gilramir/gren-format-lib), the code
 which does the actual formatting and can be used in other Gren programs.
 
-The formatter is super careful when changing your code.
+The formatter is very careful when changing your code.
 * It re-parses its output to ensure it didn't change the meaning of your code.
 * It re-formats its output to ensure its own formatting is idempotent,
   guarding against diffs for no reason.
