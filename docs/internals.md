@@ -26,17 +26,25 @@ of `Argparse.Program.runRootWithContext` (rootless — invoked directly as
 order:
 
 1. **Positional path args present** → format those files/directories in place
-   (`Format.formatPaths`). Combining path args with any flag is an error.
+   (`Format.formatPaths`), or, under `--diff`, print what formatting them would
+   change (`Format.diffPaths`). Combining path args with a single-file debug
+   flag is an error.
 2. **A single-file debug flag set** → run it (priority order below). The flags
    are folded to the first one set via a `Maybe (Task …)` list.
 3. **Neither** → `formatProject` formats every source file in the project in
-   place (needs a `gren.json` in the cwd or a parent).
+   place, or, under `--diff`, `Format.diffProject` prints what formatting them
+   would change (both need a `gren.json` in the cwd or a parent).
+
+`projectTask` is the shared front half of the two whole-project modes: it
+locates the project, builds the run's `Format.Config`, and hands it to either
+`Format.run` or `Format.diffProject`.
 
 `FormatFlags` fields:
 
 | Field | Flag | Effect |
 |---|---|---|
 | `files` | *(positional)* | Files/directories to format in place |
+| `diff` | `--diff`, `-d` | Print a unified diff of what formatting would change; write nothing |
 | `removeUnusedImports` | `--remove-unused-imports` | Also strip unused imports while formatting |
 | `showProgress` | `--show-progress` | Print each file's path before formatting it, and its outcome on the same line (in-place modes only) |
 | `show` | `--show <path>` | Parse + pretty-print one file to stdout (no write) |
@@ -53,15 +61,42 @@ order:
 
 The `run` function is the whole-project path: finds source files via
 `Outline.findSourceFiles`, then formats and atomically overwrites each changed
-file. `formatPaths` does the same for explicit path arguments. All operations
-share two helpers — `readSource` (read + UTF-8 decode) and `parseModule` (parse
-to AST + parse context, taking the error constructor) — and the format core:
+file. `formatPaths` does the same for explicit path arguments. `diffProject` and
+`diffPaths` mirror those two exactly, printing each file's diff instead of
+overwriting it (see [`--diff`](#--diff) below). All operations
+share three helpers — `readSource` (read + UTF-8 decode, returning **both** the
+raw bytes and the CRLF-normalized `source`), `parseModule` (parse to AST + parse
+context, taking the error constructor), and `isAlreadyFormatted` — and the
+format core:
 
 - `formatAndVerify` — parse → *(optionally remove unused imports)* → render →
   reparse → AST-compare → render again → idempotency-compare. Returns the
   canonical string, or an `Error` if any check fails.
 - `renderModule` — build the LPT (`makeLogicalPrintingTree`) and render it
   (`renderRoot`), shared by `formatAndVerify` and `postAstFile`.
+
+### `isAlreadyFormatted`, and why `readSource` returns two strings
+
+"Is this file already, byte for byte, what we would write?" is a question about
+the disk, so it has to be asked of the raw bytes. `readSource` used to return
+only the normalized text, which left `formatFile` nothing else to compare
+against — so a CRLF-but-otherwise-formatted file came out equal to its own LF
+output and `gren-format <path>` never rewrote it, while the no-argument run on
+the same bytes did. `--show` prints `\n` and in-place has to land what `--show`
+prints, so that was a bug in the path-argument mode, not a defensible
+difference between two modes.
+
+`readSource` now returns `{ raw, source }`: `source` is normalized and is what
+gets parsed; `raw` exists only to answer that one question. All three modes that
+need the answer — `run`, `formatFile`, and `diffOfFile` — call the single
+`isAlreadyFormatted` predicate, whose parameter is named `raw`, so handing it
+normalized text is visible at the call site rather than silent.
+
+The gate that should have caught it did not, because `fuzz-project.py`'s oracles
+are a list over two axes rather than a matrix: every CRLF oracle ran the no-arg
+mode and the positional oracle ran the dirty project, leaving positional ×
+CRLF-clean untested. Oracle H3 now covers that cell, and `Positional` /
+`DiffFlag` have unit-level regressions for it.
 
 `Error` variants: `FailedToFindSources`, `NothingToFormat`, `ParseFailure`,
 `PrettyPrintFailure`, `OverwriteFailure`, `ShowReadFailure`, `CheckReparseFailed`,
@@ -83,6 +118,47 @@ run that stops on a bad file does not leave that file's name dangling.
 A progress run also drops the list of rewritten paths that normally precedes
 `run`'s summary line: every one of those paths has already been printed next to
 what happened to it.
+
+### `--diff`
+
+`diffProject` and `diffPaths` walk the same file sets as `run` and `formatPaths`
+and run the same `formatAndVerify`; only the last step differs — instead of
+`atomicWrite`, the formatted string goes to `diffOfFile`, which returns the
+file's unified diff or `Nothing`. A `Nothing` prints nothing at all, so a
+project with nothing to reformat produces no output.
+
+The diff is headed the way `gofmt -d` heads its own, naming an original that
+does not exist so the patch applies to the real file:
+
+```
+diff src/Foo.gren.orig src/Foo.gren
+--- src/Foo.gren.orig
++++ src/Foo.gren
+@@ -1,4 +1,6 @@
+```
+
+The file's name is whatever its mode already reports — relative to the project
+root for the project run, as typed for a path argument.
+
+Two details are load-bearing:
+
+- **`contentLines` drops the phantom last line.** A file ending in a newline has
+  no empty final line, but `String.split "\n"` invents one; without this, every
+  hunk that reached the end of a file ended in a spurious blank context line.
+- **`diffOfFile` asks `isAlreadyFormatted`**, the same predicate the two
+  in-place modes ask, against the same string (the raw bytes on disk). That is
+  what keeps `--diff` from ever describing a write that would not happen.
+
+A file that would be rewritten but whose line diff is empty — CRLF endings, or a
+missing final newline — gets `invisibleChangeNotes` instead of a hunk: a `\
+`-prefixed line saying why, borrowing the marker unified diff already reserves
+for notes about a file rather than a line. Without it, `--diff` would print
+nothing for a file the very next in-place run would rewrite.
+
+`--diff` exits 0 whether or not it printed anything, like `gofmt -d`; only a
+real failure (unreadable file, parse error, a formatter check) exits nonzero.
+Under `--show-progress`, progress goes to **stderr** rather than stdout, so
+stdout stays a diff that can be piped into `patch`.
 
 ## `RemoveUnusedImports.gren`
 

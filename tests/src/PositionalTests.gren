@@ -3,6 +3,13 @@ module PositionalTests exposing (positionalSuite)
 {-| CLI integration tests for formatting one or more files given as
 positional arguments (in place).
 
+The CRLF case is here because this mode had it wrong on its own: `readSource`
+returned only the line-ending-normalized text, so a CRLF-but-otherwise-formatted
+file compared equal to its own LF output and was never rewritten, while the
+no-argument run (which keeps the raw source) rewrote the very same file. Every
+CRLF gate in the tree ran the no-argument mode, so nothing was watching this
+one.
+
 @docs positionalSuite
 -}
 
@@ -71,6 +78,34 @@ positionalSuite perms =
                     Support.writeText perms file dirtyHello
                         |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Nothing } [ Path.toPosixString file ])
                         |> Task.map (\r -> Support.expectContains "1 files reformatted" r.stdout)
+            , U.test "a CRLF file is rewritten with LF, even when nothing else about it changes" <|
+                \s ->
+                    let
+                        file =
+                            Path.append (Path.fromPosixString "Hello.gren") s.dir
+
+                        formatOnce =
+                            Support.runApp perms s.appPath { cwd = Nothing } [ Path.toPosixString file ]
+                    in
+                    -- Format first, so what goes back to disk as CRLF is
+                    -- already formatted in every other respect: line endings
+                    -- have to be the ONLY thing left to change, or a file that
+                    -- gets rewritten for some other reason hides the bug.
+                    Support.writeText perms file dirtyHello
+                        |> Task.andThen (\_ -> formatOnce)
+                        |> Task.andThen (\_ -> readBack perms file)
+                        |> Task.andThen (\lf -> Support.writeText perms file (String.replace "\n" "\r\n" lf))
+                        |> Task.andThen (\_ -> formatOnce)
+                        |> Task.andThen (\r -> readBack perms file |> Task.map (\after -> { r = r, after = after }))
+                        |> Task.map
+                            (\res ->
+                                Expect.all
+                                    [ \_ -> Expect.equal 0 res.r.exitCode
+                                    , \_ -> Support.expectContains "1 files reformatted" res.r.stdout
+                                    , \_ -> Expect.equal False (String.contains "\r" res.after)
+                                    ]
+                                    {}
+                            )
             , U.test "summary reports 0 reformatted when file already formatted" <|
                 \s ->
                     let

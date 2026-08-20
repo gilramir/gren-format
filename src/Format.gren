@@ -5,6 +5,8 @@ module Format exposing
     , auditPredicatesFile
     , boxFile
     , decisionsFile
+    , diffPaths
+    , diffProject
     , expandPathToFiles
     , formatFile
     , formatPaths
@@ -44,7 +46,7 @@ import Stream.Log
 import String.Parser.Advanced as Parser
 import Task exposing (Task)
 import Terminal.ProjectOutline as ProjectOutline
-import UnifiedDiff exposing (unifiedDiffStrings)
+import UnifiedDiff exposing (unifiedDiffArrays, unifiedDiffStrings)
 
 
 type alias Config =
@@ -79,22 +81,36 @@ type Error
     | NotIdempotent { path : Path, diff : String }
 
 
-{-| Read a file and decode its bytes as a UTF-8 source string. Maps both an I/O
-error and invalid UTF-8 to a `ShowReadFailure`.
+{-| Read a file and decode its bytes as UTF-8. Maps both an I/O error and
+invalid UTF-8 to a `ShowReadFailure`.
 
-CRLF line endings are normalized to `\n` here (`normalizeLineEndings`), as
-they are for the project run, which gets its sources from
-`Outline.findSourceFiles` rather than from this function -- the two read
-paths have to agree, and for a while they did not. Every other construct is
-emitted fresh by the renderer with
-plain `\n` and never copied verbatim from source, so a raw `\r` can only reach
-formatted output via a construct that DOES copy source text verbatim (a doc
-comment's body). Normalizing at the read boundary — rather than chasing that
-per-construct — also keeps the AST-equivalence check meaningful: it reparses
-our own (always-`\n`) rendered output and compares against the original
-parse, so if the original parse still carried a source `\r`, formatting a
-CRLF file would look like an AST-changing edit instead of a no-op. -}
-readSource : FileSystem.Permission -> Path -> Task Error String
+Returns **both** forms of the text, because two different questions get asked
+of a file and they need different answers:
+
+  - `source` — CRLF normalized to `\n` (`normalizeLineEndings`). This is what
+    gets parsed, and it is the field to reach for by default.
+  - `raw` — exactly the bytes on disk. Only for asking "is this file already,
+    byte for byte, what we would write?", which is a question about the disk
+    and cannot be answered from text the defect has been scrubbed out of.
+
+Returning only `source` is what let a CRLF file survive `formatPaths` forever:
+`formatFile` compared the formatted output against text CRLF had already been
+removed from, so an otherwise-formatted CRLF file compared equal to its own
+LF output and was never rewritten. `--show` prints `\n`, and in-place has to
+land what `--show` prints, so line endings are formatting like anything else.
+The project run never had the bug only because `Outline.findSourceFiles` hands
+it the raw source and it normalizes locally, keeping both -- which is the shape
+this function now has too, so the two read paths agree by construction rather
+than by each remembering to.
+
+Normalizing at the read boundary — rather than chasing a stray `\r`
+per-construct — is what makes the AST-equivalence check meaningful. Every
+construct is emitted fresh by the renderer with plain `\n` and never copied
+verbatim, except one that DOES copy source text verbatim (a doc comment's
+body); the check reparses our own always-`\n` output and compares it against
+the original parse, so an original parse still carrying a source `\r` would
+make the formatter's own no-op look like an AST-changing edit. -}
+readSource : FileSystem.Permission -> Path -> Task Error { raw : String, source : String }
 readSource fsPermission path =
     FileSystem.readFile fsPermission path
         |> Task.mapError (\fsErr -> ShowReadFailure { path = path, error = FileSystem.errorToString fsErr })
@@ -104,8 +120,8 @@ readSource fsPermission path =
                     Nothing ->
                         Task.fail (ShowReadFailure { path = path, error = "File content is not valid UTF-8" })
 
-                    Just source ->
-                        Task.succeed (normalizeLineEndings source)
+                    Just raw ->
+                        Task.succeed { raw = raw, source = normalizeLineEndings raw }
             )
 
 
@@ -122,6 +138,25 @@ The mode most people run was the one mode no gate covered. -}
 normalizeLineEndings : String -> String
 normalizeLineEndings source =
     String.replace "\r\n" "\n" source
+
+
+{-| Is what is on disk already, byte for byte, what formatting would write?
+
+Asked of the RAW bytes, never of the normalized text. A file whose only defect
+is its line endings still has to be rewritten: `--show` prints it with `\n`,
+and an in-place run has to land exactly what `--show` prints, so line endings
+are formatting like anything else. Compared against normalized text such a file
+comes out equal to its own output and keeps its `\r`s forever -- which is the
+bug `formatPaths` had for as long as `readSource` returned only the normalized
+form and left its callers nothing else to ask.
+
+One function because all three modes that need the answer -- the project run,
+the path-argument run, and `--diff` -- have to give the same one, or `--diff`
+describes a write that does not happen.
+-}
+isAlreadyFormatted : { raw : String, pretty : String } -> Bool
+isAlreadyFormatted { raw, pretty } =
+    pretty ++ "\n" == raw
 
 
 {-| Parse module source into its AST and trailing parse `Context`
@@ -395,13 +430,7 @@ run { fsPermission, pathToString, projectPath, outline, removeUnusedImports, pro
                                                     Task.fail err
 
                                                 Ok pretty ->
-                                                    -- Against the RAW bytes, deliberately: a file
-                                                    -- whose only defect is its line endings has to be
-                                                    -- rewritten, because `--show` would print it with
-                                                    -- `\n` and in-place must land what `--show` prints.
-                                                    -- Compared against the normalized text it looks
-                                                    -- already-formatted and keeps its `\r`s forever.
-                                                    if pretty ++ "\n" == source then
+                                                    if isAlreadyFormatted { raw = source, pretty = pretty } then
                                                         Task.succeed False
 
                                                     else
@@ -465,13 +494,13 @@ formatFile : { fsPermission : FileSystem.Permission, removeUnusedImports : Bool 
 formatFile { fsPermission, removeUnusedImports } path =
     readSource fsPermission path
         |> Task.andThen
-            (\source ->
+            (\{ raw, source } ->
                 when formatAndVerify removeUnusedImports path source is
                     Err err ->
                         Task.fail err
 
                     Ok pretty ->
-                        if pretty ++ "\n" == source then
+                        if isAlreadyFormatted { raw = raw, pretty = pretty } then
                             Task.succeed False
 
                         else
@@ -518,11 +547,226 @@ formatPaths config paths =
     Array.foldl expandAndFormat (Task.succeed { rewritten = 0, skipped = 0 }) paths
 
 
+{-| Split a whole file's contents into its lines. A file that ends in a newline
+does not have an empty last line; `String.split "\n"` invents one, and a diff of
+two such strings would end every hunk that reaches the end of the file with a
+spurious blank context line. -}
+contentLines : String -> Array String
+contentLines contents =
+    let
+        lines =
+            String.split "\n" contents
+    in
+    when Array.last lines is
+        Just "" ->
+            Array.dropLast 1 lines
+
+        _ ->
+            lines
+
+
+{-| Why a file that would be rewritten still produced an empty line diff: the
+change is in bytes a line-based diff cannot show. Written with the `\ ` prefix,
+the marker unified diff already reserves for notes about a file rather than
+about a line, so the output stays unambiguous when it is read as a patch. -}
+invisibleChangeNotes : String -> Array String
+invisibleChangeNotes source =
+    let
+        crlf =
+            if String.contains "\r\n" source then
+                [ "\\ Only the line endings differ (CRLF becomes LF)." ]
+
+            else
+                []
+
+        finalNewline =
+            if not (String.endsWith "\n" source) then
+                [ "\\ No newline at end of file." ]
+
+            else
+                []
+
+        notes =
+            crlf ++ finalNewline
+    in
+    if Array.isEmpty notes then
+        [ "\\ The change is whitespace a line diff cannot show." ]
+
+    else
+        notes
+
+
+{-| One file's contribution to a `--diff` run: the unified diff of what
+formatting would change, or `Nothing` when the file is already formatted -- in
+which case nothing at all is printed for it, so a clean run prints nothing.
+
+`name` is the path as the calling mode reports it: relative to the project root
+for the no-argument run, as typed for a path argument. The header names the
+original `<name>.orig`, a file that does not exist, so that the diff applies to
+`<name>` itself.
+
+`raw` is the bytes on disk. Both callers hand over the same thing and ask
+`isAlreadyFormatted` the same question their in-place counterparts ask, which
+is what keeps `--diff` from ever describing a write that would not happen. -}
+diffOfFile : { name : String, raw : String, pretty : String } -> Maybe String
+diffOfFile { name, raw, pretty } =
+    if isAlreadyFormatted { raw = raw, pretty = pretty } then
+        Nothing
+
+    else
+        let
+            header =
+                [ "diff " ++ name ++ ".orig " ++ name
+                , "--- " ++ name ++ ".orig"
+                , "+++ " ++ name
+                ]
+
+            body =
+                unifiedDiffArrays
+                    (contentLines (normalizeLineEndings raw))
+                    (contentLines (pretty ++ "\n"))
+        in
+        Just
+            (String.join "\n"
+                (if body == "" then
+                    header ++ invisibleChangeNotes raw
+
+                 else
+                    header ++ [ body ]
+                )
+            )
+
+
+{-| The outcome of a file in a `--diff` run. Nothing is being rewritten, so the
+progress line says what *would* happen rather than what did. -}
+diffOutcome : Maybe String -> String
+diffOutcome maybeDiff =
+    when maybeDiff is
+        Just _ ->
+            "would reformat"
+
+        Nothing ->
+            "already formatted"
+
+
+{-| Print one file's diff, or nothing at all when it has none. -}
+emitDiff : Stream.Writable Bytes -> Maybe String -> Task Error {}
+emitDiff stdout maybeDiff =
+    when maybeDiff is
+        Nothing ->
+            Task.succeed {}
+
+        Just text ->
+            Stream.Log.line stdout text
+
+
+{-| Read and format a single file without writing it, returning the diff of what
+formatting would change (`Nothing` if it would change nothing). -}
+diffFile : { fsPermission : FileSystem.Permission, removeUnusedImports : Bool } -> String -> Path -> Task Error (Maybe String)
+diffFile { fsPermission, removeUnusedImports } name path =
+    readSource fsPermission path
+        |> Task.andThen
+            (\{ raw, source } ->
+                when formatAndVerify removeUnusedImports path source is
+                    Err err ->
+                        Task.fail err
+
+                    Ok pretty ->
+                        Task.succeed (diffOfFile { name = name, raw = raw, pretty = pretty })
+            )
+
+
+{-| `--diff` for path arguments: the same file set `formatPaths` would rewrite --
+a directory expands to its direct Gren source files, any other path is that
+file -- but print each one's unified diff instead of overwriting it. -}
+diffPaths :
+    { stdout : Stream.Writable Bytes
+    , fsPermission : FileSystem.Permission
+    , removeUnusedImports : Bool
+    , progress : Progress
+    }
+    -> Array Path
+    -> Task Error {}
+diffPaths config paths =
+    let
+        fileConfig =
+            { fsPermission = config.fsPermission
+            , removeUnusedImports = config.removeUnusedImports
+            }
+
+        diffOne filePath innerTask =
+            innerTask
+                |> Task.andThen
+                    (\_ ->
+                        let
+                            name =
+                                Path.toPosixString filePath
+                        in
+                        withProgress config.progress name diffOutcome (diffFile fileConfig name filePath)
+                            |> Task.andThen (emitDiff config.stdout)
+                    )
+
+        expandAndDiff path outerTask =
+            outerTask
+                |> Task.andThen
+                    (\_ ->
+                        expandPathToFiles config.fsPermission path
+                            |> Task.andThen (\filePaths -> Array.foldl diffOne (Task.succeed {}) filePaths)
+                    )
+    in
+    Array.foldl expandAndDiff (Task.succeed {}) paths
+
+
+{-| `--diff` for the no-argument project run: the same file set `run` would
+rewrite, but print each one's unified diff instead of overwriting it. -}
+diffProject : Config -> Task Error {}
+diffProject { stdout, fsPermission, pathToString, projectPath, outline, removeUnusedImports, progress } =
+    Outline.findSourceFiles fsPermission outline projectPath
+        |> Task.mapError FailedToFindSources
+        |> Task.andThen
+            (\files ->
+                let
+                    processFn { path, source } previous =
+                        Task.andThen
+                            (\_ ->
+                                if path.extension /= "gren" then
+                                    -- Probably kernel code
+                                    Task.succeed {}
+
+                                else
+                                    let
+                                        relPath =
+                                            pathRelativeFrom projectPath path
+
+                                        name =
+                                            pathToString relPath
+
+                                        diffOne =
+                                            when formatAndVerify removeUnusedImports relPath (normalizeLineEndings source) is
+                                                Err err ->
+                                                    Task.fail err
+
+                                                Ok pretty ->
+                                                    Task.succeed (diffOfFile { name = name, raw = source, pretty = pretty })
+                                    in
+                                    withProgress progress name diffOutcome diffOne
+                                        |> Task.andThen (emitDiff stdout)
+                            )
+                            previous
+                in
+                if files == [] then
+                    Task.fail NothingToFormat
+
+                else
+                    Array.foldl processFn (Task.succeed {}) files
+            )
+
+
 showFile : { stdout : Stream.Writable Bytes, fsPermission : FileSystem.Permission, removeUnusedImports : Bool } -> Path -> Task Error {}
 showFile { stdout, fsPermission, removeUnusedImports } path =
     readSource fsPermission path
         |> Task.andThen
-            (\source ->
+            (\{ source } ->
                 when formatAndVerify removeUnusedImports path source is
                     Err err ->
                         Task.fail err
@@ -538,7 +782,7 @@ showFirstFile : { stdout : Stream.Writable Bytes, fsPermission : FileSystem.Perm
 showFirstFile { stdout, fsPermission, removeUnusedImports } path =
     readSource fsPermission path
         |> Task.andThen
-            (\source ->
+            (\{ source } ->
                 when formatFirst removeUnusedImports path source is
                     Err err ->
                         Task.fail err
@@ -552,7 +796,7 @@ preAstFile : { stdout : Stream.Writable Bytes, fsPermission : FileSystem.Permiss
 preAstFile { stdout, fsPermission } path =
     readSource fsPermission path
         |> Task.andThen
-            (\source ->
+            (\{ source } ->
                 when parseModule ParseFailure path source is
                     Err err ->
                         Task.fail err
@@ -577,7 +821,7 @@ preContextFile : { stdout : Stream.Writable Bytes, fsPermission : FileSystem.Per
 preContextFile { stdout, fsPermission } path =
     readSource fsPermission path
         |> Task.andThen
-            (\source ->
+            (\{ source } ->
                 when parseModule ParseFailure path source is
                     Err err ->
                         Task.fail err
@@ -591,7 +835,7 @@ postAstFile : { stdout : Stream.Writable Bytes, fsPermission : FileSystem.Permis
 postAstFile { stdout, fsPermission } path =
     readSource fsPermission path
         |> Task.andThen
-            (\source ->
+            (\{ source } ->
                 when parseModule ParseFailure path source is
                     Err err ->
                         Task.fail err
@@ -632,7 +876,7 @@ postContextFile : { stdout : Stream.Writable Bytes, fsPermission : FileSystem.Pe
 postContextFile { stdout, fsPermission } path =
     readSource fsPermission path
         |> Task.andThen
-            (\source ->
+            (\{ source } ->
                 when parseModule ParseFailure path source is
                     Err err ->
                         Task.fail err
@@ -661,7 +905,7 @@ lptFile : { stdout : Stream.Writable Bytes, fsPermission : FileSystem.Permission
 lptFile { stdout, fsPermission } path =
     readSource fsPermission path
         |> Task.andThen
-            (\source ->
+            (\{ source } ->
                 when parseModule ParseFailure path source is
                     Err err ->
                         Task.fail err
@@ -685,7 +929,7 @@ auditPredicatesFile : { stdout : Stream.Writable Bytes, fsPermission : FileSyste
 auditPredicatesFile { stdout, fsPermission } path =
     readSource fsPermission path
         |> Task.andThen
-            (\source ->
+            (\{ source } ->
                 when parseModule ParseFailure path source is
                     Err err ->
                         Task.fail err
@@ -720,7 +964,7 @@ decisionsFile : { stdout : Stream.Writable Bytes, fsPermission : FileSystem.Perm
 decisionsFile { stdout, fsPermission } path =
     readSource fsPermission path
         |> Task.andThen
-            (\source ->
+            (\{ source } ->
                 when decisionStabilityReport path source is
                     Err err ->
                         Task.fail err
@@ -785,7 +1029,7 @@ boxFile : { stdout : Stream.Writable Bytes, fsPermission : FileSystem.Permission
 boxFile { stdout, fsPermission } path =
     readSource fsPermission path
         |> Task.andThen
-            (\source ->
+            (\{ source } ->
                 when parseModule ParseFailure path source is
                     Err err ->
                         Task.fail err

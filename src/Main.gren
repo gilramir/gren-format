@@ -27,6 +27,7 @@ import Version
 
 type alias FormatFlags =
     { files : Array Path
+    , diff : Bool
     , removeUnusedImports : Bool
     , showProgress : Bool
     , show : Maybe Path
@@ -58,8 +59,9 @@ command =
             }
     , flags =
         AP.initFlags
-            (\removeUnusedImports showProgress show showFirst preAst preContext postAst postContext lpt box auditPredicates decisions ->
+            (\diff removeUnusedImports showProgress show showFirst preAst preContext postAst postContext lpt box auditPredicates decisions ->
                 { files = []
+                , diff = diff
                 , removeUnusedImports = removeUnusedImports
                 , showProgress = showProgress
                 , show = show
@@ -74,6 +76,7 @@ command =
                 , decisions = decisions
                 }
             )
+            |> AP.toggle (AP.Both { long = "diff", short = "d" }) "Print a unified diff of what formatting would change, without modifying any file"
             |> AP.toggle (AP.LongOnly "remove-unused-imports") "Remove unused imports while formatting"
             |> AP.toggle (AP.LongOnly "show-progress") "Print each file as it is formatted, then its outcome on the same line"
             |> AP.flag (AP.LongOnly "show") AP.pathParser "Parse and pretty-print a single file to stdout without modifying it"
@@ -132,31 +135,40 @@ onCommand env context flags =
             , removeUnusedImports = flags.removeUnusedImports
             }
 
+        anyFlagSet =
+            flags.show /= Nothing
+                || flags.showFirst /= Nothing
+                || flags.preAst /= Nothing
+                || flags.preContext /= Nothing
+                || flags.postAst /= Nothing
+                || flags.postContext /= Nothing
+                || flags.lpt /= Nothing
+                || flags.box /= Nothing
+                || flags.auditPredicates /= Nothing
+                || flags.decisions /= Nothing
+
         -- Progress is a property of the modes that walk several files; the
         -- single-file inspection flags ignore it.
         progress =
-            if flags.showProgress then
-                Just env.stdout
+            progressStream env flags
 
-            else
-                Nothing
+        diffConfig =
+            { stdout = env.stdout
+            , fsPermission = context.fs
+            , removeUnusedImports = flags.removeUnusedImports
+            , progress = progress
+            }
     in
-    if not (Array.isEmpty flags.files) then
-        let
-            anyFlagSet =
-                flags.show /= Nothing
-                    || flags.showFirst /= Nothing
-                    || flags.preAst /= Nothing
-                    || flags.preContext /= Nothing
-                    || flags.postAst /= Nothing
-                    || flags.postContext /= Nothing
-                    || flags.lpt /= Nothing
-                    || flags.box /= Nothing
-                    || flags.auditPredicates /= Nothing
-                    || flags.decisions /= Nothing
-        in
+    if flags.diff && anyFlagSet then
+        Task.fail (Program.ExitMessage "Cannot combine --diff with the single-file inspection flags. Use --help for options.")
+
+    else if not (Array.isEmpty flags.files) then
         if anyFlagSet then
             Task.fail (Program.ExitMessage "Cannot combine file path arguments with flags. Use --help for options.")
+
+        else if flags.diff then
+            Format.diffPaths diffConfig flags.files
+                |> Task.mapError (\err -> Program.ExitMessage (reportToString context.useColor (Format.prettifyError err)))
 
         else
             Format.formatPaths { fsPermission = context.fs, removeUnusedImports = flags.removeUnusedImports, progress = progress } flags.files
@@ -167,6 +179,9 @@ onCommand env context flags =
                             (String.fromInt rewritten ++ " files reformatted, " ++ String.fromInt skipped ++ " files already formatted.")
                     )
                 |> Task.map (\_ -> {})
+
+    else if flags.diff then
+        projectTask env context flags Format.diffProject
 
     else
         let
@@ -204,8 +219,29 @@ onCommand env context flags =
                 formatProject env context flags
 
 
-formatProject : Node.Environment -> Context -> FormatFlags -> Task Program.Failure {}
-formatProject env context flags =
+{-| Where per-file progress goes for the modes that walk several files.
+
+Under `--diff` it goes to stderr rather than stdout: stdout is then carrying a
+unified diff that has to stay pipeable into `patch`, and progress lines mixed
+into it would not be. -}
+progressStream : Node.Environment -> FormatFlags -> Format.Progress
+progressStream env flags =
+    if not flags.showProgress then
+        Nothing
+
+    else if flags.diff then
+        Just env.stderr
+
+    else
+        Just env.stdout
+
+
+{-| The shared front half of the whole-project modes: locate the project's
+`gren.json`, build the run's `Format.Config`, and hand it to whichever of them
+was asked for -- `Format.run` to rewrite the files, `Format.diffProject` to
+print what rewriting them would change. -}
+projectTask : Node.Environment -> Context -> FormatFlags -> (Format.Config -> Task Format.Error a) -> Task Program.Failure a
+projectTask env context flags op =
     ProjectOutline.readProjectOutline context.fs
         |> Task.mapError
             (\err ->
@@ -218,22 +254,22 @@ formatProject env context flags =
             )
         |> Task.andThen
             (\{ projectPath, outline } ->
-                Format.run
+                op
                     { stdout = env.stdout
                     , fsPermission = context.fs
                     , pathToString = Path.toPosixString
                     , projectPath = projectPath
                     , outline = outline
                     , removeUnusedImports = flags.removeUnusedImports
-                    , progress =
-                        if flags.showProgress then
-                            Just env.stdout
-
-                        else
-                            Nothing
+                    , progress = progressStream env flags
                     }
                     |> Task.mapError (\err -> Program.ExitMessage (reportToString context.useColor (Format.prettifyError err)))
             )
+
+
+formatProject : Node.Environment -> Context -> FormatFlags -> Task Program.Failure {}
+formatProject env context flags =
+    projectTask env context flags Format.run
         |> Task.andThen (\summary -> Stream.Log.line env.stdout summary)
         |> Task.map (\_ -> {})
 

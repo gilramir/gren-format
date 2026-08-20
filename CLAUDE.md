@@ -23,17 +23,25 @@ node app --show MyFile.gren      # one file to stdout, with all checks
 `onCommand` in `src/Main.gren` dispatches in this order:
 
 1. **Positional paths** → format those files/directories in place. Combining
-   paths with any flag is an error.
+   paths with a single-file debug flag is an error.
 2. **A single-file debug flag** (`--show`, `--lpt`, `--box`, `--pre-ast`,
    `--pre-context`, `--post-ast`, `--post-context`, `--decisions`,
    `--audit-predicates`, `--show-first`) → run that inspection, write nothing.
 3. **No arguments** → format every source file in the project in place; needs a
    `gren.json` in the cwd or a parent.
 
+`--diff` / `-d` turns 1 and 3 into a dry run: same file sets, but each file's
+unified diff goes to stdout and nothing is written. A file that is already
+formatted contributes no output, so a clean run prints nothing. Exit status is 0
+either way (like `gofmt -d`); only a real failure is nonzero. It cannot be
+combined with the single-file debug flags.
+
 `--remove-unused-imports` and `--show-progress` combine with the in-place
-modes; `--show-progress` prints each file's path with no newline before the
-formatter starts on it, then the outcome (`reformatted`, `already formatted`,
-`parse error`, `format error`) on the same line. There is no
+modes and with `--diff`; `--show-progress` prints each file's path with no
+newline before the formatter starts on it, then the outcome (`reformatted`,
+`already formatted`, `parse error`, `format error`) on the same line — under
+`--diff` the outcome is `would reformat` and the whole progress line goes to
+**stderr**, so stdout stays pipeable into `patch`. There is no
 `--check` flag: `--show` is the stronger check (parse → format → reparse →
 AST-compare → format again → idempotency-compare), so redirect it when you only
 want the verdict — `node app --show F.gren > /dev/null && echo clean`.
@@ -41,14 +49,14 @@ want the verdict — `node app --show F.gren > /dev/null && echo clean`.
 ## Tests
 
 ```bash
-cd gren-format && devbox run test    # builds ./app + the test app, runs all 67
+cd gren-format && devbox run test    # builds ./app + the test app, runs all 78
 ```
 
 CLI integration tests are in `tests/`, written in Gren on
 `gilramir/gren-unit-node`. They shell out to the built `../app` and assert on
 exit code, stdout/stderr, JSON output and in-place edits — suites `NoArgs`,
 `ShowFlag`, `JsonFlags`, `Positional`, `NoArgsFormat`, `RemoveUnusedImportsFlag`,
-`ShowProgress`.
+`ShowProgress`, `DiffFlag`.
 
 The write modes are also swept by `../gren-format-lib/tests/fuzz-project.py`, and
 every python gate in `../gren-format-lib/tests/` shells out to this app — so
