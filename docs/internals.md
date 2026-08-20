@@ -98,6 +98,13 @@ mode and the positional oracle ran the dirty project, leaving positional ×
 CRLF-clean untested. Oracle H3 now covers that cell, and `Positional` /
 `DiffFlag` have unit-level regressions for it.
 
+Crossing those axes properly then found more, including one in `--diff` itself:
+H3 exercises `--diff` only on CRLF-clean input, where the diff body is *empty*
+and only the note prints, so no sweep had ever checked a hunk. Oracle **J**
+does — it applies the printed patch and requires the result to equal `--show`,
+which is the property `--diff` actually promises. See the fuzzer's docstring
+for the current matrix and what is still empty in it.
+
 `Error` variants: `FailedToFindSources`, `NothingToFormat`, `ParseFailure`,
 `PrettyPrintFailure`, `OverwriteFailure`, `ShowReadFailure`, `CheckReparseFailed`,
 `AstMismatchAfterFormat`, `NotIdempotent`. `prettifyError` renders each to a
