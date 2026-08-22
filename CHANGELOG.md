@@ -12,7 +12,7 @@ itself comes from `gilramir/gren-format-lib`, which this release pins at 1.0.1.
 
 ### Added
 
-- **`--diff` / `-d`** — a dry run. Cach changed file's unified diff goes to
+- **`--diff` / `-d`** — a dry run. Each changed file's unified diff goes to
   stdout, and no changes are written to disk. A file that is
   already formatted shows no diff, so a clean run prints nothing at all,
   and the exit status is 0 either way — only a real failure is nonzero. The
