@@ -1,6 +1,6 @@
 {
   "name": "gren-format",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "A code formatter for the Gren programming language",
   "scripts": {
     "prepublishOnly": "./build.sh"

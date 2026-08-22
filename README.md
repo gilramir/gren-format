@@ -134,6 +134,13 @@ Preview formatted output without writing:
 gren-format --show src/Main.gren
 ```
 
+See what a run would change, without changing anything:
+
+```
+gren-format --diff
+gren-format --diff src/Main.gren src/Util.gren
+```
+
 Remove unused imports while formatting:
 
 ```
@@ -161,6 +168,70 @@ src/Formatter/Render/MakeRenderBox.gren ... reformatted
 So a run that spends a second on one module says which module it is spending
 it on. `--show-progress` applies to both in-place modes (the no-argument
 project run and positional paths); the single-file debug flags ignore it.
+
+## Previewing changes with `--diff`
+
+`--diff` (or `-d`) makes an in-place run a dry run. It looks at exactly the
+same files it would otherwise rewrite; the whole project with no arguments, or
+the paths you name. But instead of writing anything it prints each changed
+file's unified diff to stdout:
+
+```
+$ gren-format --diff
+diff src/Main.gren.orig src/Main.gren
+--- src/Main.gren.orig
++++ src/Main.gren
+@@ -4,6 +4,8 @@
+ 
+ 
+ main =
+-  let x = 1
+-  in
+-  x + 2
++    let
++        x =
++            1
++    in
++    x + 2
+```
+
+A file that is already formatted contributes no output, so a clean run
+prints nothing at all. Exit status is 0 either way; only a real failure
+(a file that doesn't parse, or a formatter bug) is non-zero.
+
+The header names a `.orig` original that doesn't exist, so the output is a
+plain patch against your working tree and pipes straight into `patch`:
+
+```
+gren-format --diff | patch -p0
+```
+
+Applying it lands the same bytes the in-place run would have written.
+
+Occasionally a file needs rewriting but its *line* diff is empty, because the
+change is in bytes a line-based diff can't show — CRLF line endings being
+normalized, or a missing newline at the end of the file. Printing nothing there
+would be a lie about a file the very next in-place run rewrites, so `--diff`
+names the reason instead, on a `\ ` line — the marker unified diff already
+reserves for notes about a file rather than about a line:
+
+```
+diff src/Main.gren.orig src/Main.gren
+--- src/Main.gren.orig
++++ src/Main.gren
+\ Only the line endings differ (CRLF becomes LF).
+```
+
+`--diff` combines with `--remove-unused-imports` and with `--show-progress`;
+it cannot be combined with the single-file debug flags below. Under
+`--diff`, `--show-progress` reports each file as `would reformat` and sends
+its whole progress line to **stderr**, so stdout stays a clean patch:
+
+```
+$ gren-format --diff --show-progress > changes.patch
+src/Main.gren ... would reformat
+src/Util.gren ... already formatted
+```
 
 ## Removing unused import statements
 
@@ -291,7 +362,8 @@ These flags operate on a single file and write to stdout instead of disk:
 | `--box <file>` | Print the `Box` render tree as a JSON |
 
 `--show` respects `--remove-unused-imports`. The other debug flags operate
-on the raw AST and do not.
+on the raw AST and do not. None of them can be combined with `--diff`, which
+works on whole file sets rather than a single named file.
 
 ## Getting help / reporting bugs
 

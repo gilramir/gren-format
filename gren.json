@@ -9,7 +9,7 @@
         "direct": {
             "gilramir/gren-argparse": "2.0.0",
             "gilramir/gren-diff": "1.0.2",
-            "gilramir/gren-format-lib": "1.0.0",
+            "gilramir/gren-format-lib": "1.0.1",
             "gren-lang/compiler-common": "3.0.0",
             "gren-lang/compiler-node": "5.0.0",
             "gren-lang/core": "7.4.2",
