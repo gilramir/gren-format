@@ -169,6 +169,22 @@ So a run that spends a second on one module says which module it is spending
 it on. `--show-progress` applies to both in-place modes (the no-argument
 project run and positional paths); the single-file debug flags ignore it.
 
+## Line endings
+
+`gren-format` always writes LF (`\n`) line endings, whatever the file had
+before. A file written with Windows CRLF endings formats to LF, including
+inside a multiline string.
+
+This is not a Gren-specific choice: `elm-format` does the same, and has done
+since 0.6.0-alpha. Both tools accept CRLF happily on the way in and emit LF on
+the way out, and neither has a flag to keep the endings you wrote.
+
+The practical consequence is that **line endings are formatting**. A file whose
+only defect is CRLF is not "already formatted": a run rewrites it, it is
+counted in the "N files reformatted" total, and `--diff` reports it. Because
+its *line* diff is empty, `--diff` names the reason on a `\ ` note line rather
+than printing nothing (see below).
+
 ## Previewing changes with `--diff`
 
 `--diff` (or `-d`) makes an in-place run a dry run. It looks at exactly the
