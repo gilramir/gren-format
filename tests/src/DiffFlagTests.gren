@@ -35,233 +35,217 @@ diffFlagSuite perms =
         , setUp = makeScratch perms
         , tearDown = removeScratch perms
         , tests =
-            [ U.test "project run prints a unified diff and leaves the file alone" <|
-                \s ->
-                    let
-                        srcFile =
-                            Path.append (Path.fromPosixString "src/Hello.gren") s.dir
-                    in
-                    Support.makeProject perms s.dir dirtyHello
-                        |> Task.andThen (\_ -> run perms s [ "--diff" ])
-                        |> Task.andThen (\r -> readBack perms srcFile |> Task.map (\after -> { r = r, after = after }))
-                        |> Task.map
-                            (\res ->
-                                Expect.all
-                                    [ \_ -> Expect.equal 0 res.r.exitCode
-                                    , \_ -> Support.expectContains "diff src/Hello.gren.orig src/Hello.gren\n" res.r.stdout
-                                    , \_ -> Support.expectContains "--- src/Hello.gren.orig\n" res.r.stdout
-                                    , \_ -> Support.expectContains "+++ src/Hello.gren\n" res.r.stdout
+            [ U.test "project run prints a unified diff and leaves the file alone" <| \s ->
+                let
+                    srcFile =
+                        Path.append (Path.fromPosixString "src/Hello.gren") s.dir
+                in
+                Support.makeProject perms s.dir dirtyHello
+                    |> Task.andThen (\_ -> run perms s [ "--diff" ])
+                    |> Task.andThen (\r -> readBack perms srcFile |> Task.map (\after -> { r = r, after = after }))
+                    |> Task.map
+                        (\res ->
+                            Expect.all
+                                [ \_ -> Expect.equal 0 res.r.exitCode
+                                , \_ -> Support.expectContains "diff src/Hello.gren.orig src/Hello.gren\n" res.r.stdout
+                                , \_ -> Support.expectContains "--- src/Hello.gren.orig\n" res.r.stdout
+                                , \_ -> Support.expectContains "+++ src/Hello.gren\n" res.r.stdout
+                                , -- the whole transformation, in one line: the
+                                  -- 4-line source becomes 6 lines (two blank
+                                  -- lines before the declaration)
+                                  \_ -> Support.expectContains "@@ -1,4 +1,6 @@\n" res.r.stdout
+                                , \_ -> Support.expectContains " module Hello exposing (x)\n" res.r.stdout
+                                , -- nothing was written: the source is byte-for-byte what we wrote
+                                  \_ -> Expect.equal dirtyHello res.after
+                                ]
+                                {}
+                        )
+            , U.test "an already formatted project prints nothing at all" <| \s ->
+                -- Format in place first rather than hard-coding the
+                -- formatter's output, so the fixture cannot go stale.
+                Support.makeProject perms s.dir dirtyHello
+                    |> Task.andThen (\_ -> run perms s [])
+                    |> Task.andThen (\_ -> run perms s [ "--diff" ])
+                    |> Task.map
+                        (\r ->
+                            Expect.all
+                                [ \_ -> Expect.equal 0 r.exitCode
+                                , \_ -> Expect.equal "" r.stdout
+                                ]
+                                {}
+                        )
+            , U.test "-d on a named file diffs that file and writes nothing" <| \s ->
+                let
+                    srcFile =
+                        Path.append (Path.fromPosixString "src/Hello.gren") s.dir
+                in
+                Support.makeProject perms s.dir dirtyHello
+                    |> Task.andThen (\_ -> run perms s [ "-d", "src/Hello.gren" ])
+                    |> Task.andThen (\r -> readBack perms srcFile |> Task.map (\after -> { r = r, after = after }))
+                    |> Task.map
+                        (\res ->
+                            Expect.all
+                                [ \_ -> Expect.equal 0 res.r.exitCode
+                                , \_ -> Support.expectContains "diff src/Hello.gren.orig src/Hello.gren\n" res.r.stdout
+                                , \_ -> Expect.equal dirtyHello res.after
+                                ]
+                                {}
+                        )
+            , U.test "-d on a directory diffs the files in it" <| \s ->
+                Support.makeProject perms s.dir dirtyHello
+                    |> Task.andThen (\_ -> run perms s [ "-d", "src" ])
+                    |> Task.map
+                        (\r ->
+                            Expect.all
+                                [ \_ -> Expect.equal 0 r.exitCode
+                                , \_ -> Support.expectContains "diff src/Hello.gren.orig src/Hello.gren\n" r.stdout
+                                ]
+                                {}
+                        )
+            , U.test "the diff names exactly the files the in-place run reformats" <| \s ->
+                -- Two files, one already formatted: the clean one must not
+                -- appear in the diff, and the dirty one must.
+                Support.makeProject perms s.dir dirtyHello
+                    |> Task.andThen (\_ -> run perms s [])
+                    |> Task.andThen
+                        (\_ ->
+                            Support.writeText perms
+                                (Path.append (Path.fromPosixString "src/Other.gren") s.dir)
+                                "module Other exposing (y)\ny : Int\ny =\n    2\n"
+                        )
+                    |> Task.andThen (\_ -> run perms s [ "--diff" ])
+                    |> Task.map
+                        (\r ->
+                            Expect.all
+                                [ \_ -> Support.expectContains "src/Other.gren" r.stdout
+                                , \_ -> Support.expectNotContains "src/Hello.gren" r.stdout
+                                ]
+                                {}
+                        )
+            , U.test "a CRLF-only difference gets a note instead of an empty diff" <| \s ->
+                let
+                    srcFile =
+                        Path.append (Path.fromPosixString "src/Hello.gren") s.dir
+                in
+                Support.makeProject perms s.dir dirtyHello
+                    |> Task.andThen (\_ -> run perms s [])
+                    |> Task.andThen (\_ -> readBack perms srcFile)
+                    |> Task.andThen (\lf -> Support.writeText perms srcFile (String.replace "\n" "\r\n" lf))
+                    |> Task.andThen (\_ -> run perms s [ "--diff" ])
+                    |> Task.map
+                        (\r ->
+                            Expect.all
+                                [ \_ -> Expect.equal 0 r.exitCode
+                                , \_ -> Support.expectContains "diff src/Hello.gren.orig src/Hello.gren\n" r.stdout
+                                , \_ -> Support.expectContains "\\ Only the line endings differ" r.stdout
+                                ]
+                                {}
+                        )
+            , U.test "a missing final newline gets a note instead of an empty diff" <| \s ->
+                let
+                    srcFile =
+                        Path.append (Path.fromPosixString "src/Hello.gren") s.dir
+                in
+                Support.makeProject perms s.dir dirtyHello
+                    |> Task.andThen (\_ -> run perms s [])
+                    |> Task.andThen (\_ -> readBack perms srcFile)
+                    |> Task.andThen (\formatted -> Support.writeText perms srcFile (String.dropLast 1 formatted))
+                    |> Task.andThen (\_ -> run perms s [ "--diff" ])
+                    |> Task.map
+                        (\r ->
+                            Expect.all
+                                [ \_ -> Expect.equal 0 r.exitCode
+                                , \_ -> Support.expectContains "\\ No newline at end of file." r.stdout
+                                ]
+                                {}
+                        )
+            , U.test "--remove-unused-imports shows the removal in the diff" <| \s ->
+                Support.makeProject perms s.dir "module Hello exposing (x)\n\nimport Dict\n\n\nx : Int\nx =\n    1\n"
+                    |> Task.andThen (\_ -> run perms s [ "--diff", "--remove-unused-imports" ])
+                    |> Task.map
+                        (\r ->
+                            Expect.all
+                                [ \_ -> Expect.equal 0 r.exitCode
+                                , \_ -> Support.expectContains "-import Dict" r.stdout
+                                ]
+                                {}
+                        )
+            , U.test "--show-progress keeps stdout a clean diff and reports on stderr" <| \s ->
+                Support.makeProject perms s.dir dirtyHello
+                    |> Task.andThen (\_ -> run perms s [ "--diff", "--show-progress" ])
+                    |> Task.map
+                        (\r ->
+                            Expect.all
+                                [ \_ -> Expect.equal 0 r.exitCode
+                                , \_ -> Support.expectContains "would reformat" r.stderr
+                                , \_ -> Support.expectNotContains "would reformat" r.stdout
+                                , \_ -> Support.expectContains "diff src/Hello.gren.orig" r.stdout
+                                ]
+                                {}
+                        )
+            , U.test "--diff and the in-place run agree about a CRLF file given as a path" <| \s ->
+                -- The invariant, asserted directly rather than per mode:
+                -- whatever `--diff` says about a file, the in-place run on
+                -- that same file has to do. A CRLF-but-otherwise-formatted
+                -- file is where the two came apart, and it came apart in
+                -- the path-argument mode only -- so this asks the question
+                -- with a path argument, not a project run.
+                let
+                    file =
+                        Path.append (Path.fromPosixString "src/Hello.gren") s.dir
 
-                                    -- the whole transformation, in one line: the
-                                    -- 4-line source becomes 6 lines (two blank
-                                    -- lines before the declaration)
-                                    , \_ -> Support.expectContains "@@ -1,4 +1,6 @@\n" res.r.stdout
-                                    , \_ -> Support.expectContains " module Hello exposing (x)\n" res.r.stdout
-
-                                    -- nothing was written: the source is byte-for-byte what we wrote
-                                    , \_ -> Expect.equal dirtyHello res.after
-                                    ]
-                                    {}
-                            )
-            , U.test "an already formatted project prints nothing at all" <|
-                \s ->
-                    -- Format in place first rather than hard-coding the
-                    -- formatter's output, so the fixture cannot go stale.
-                    Support.makeProject perms s.dir dirtyHello
-                        |> Task.andThen (\_ -> run perms s [])
-                        |> Task.andThen (\_ -> run perms s [ "--diff" ])
-                        |> Task.map
-                            (\r ->
-                                Expect.all
-                                    [ \_ -> Expect.equal 0 r.exitCode
-                                    , \_ -> Expect.equal "" r.stdout
-                                    ]
-                                    {}
-                            )
-            , U.test "-d on a named file diffs that file and writes nothing" <|
-                \s ->
-                    let
-                        srcFile =
-                            Path.append (Path.fromPosixString "src/Hello.gren") s.dir
-                    in
-                    Support.makeProject perms s.dir dirtyHello
-                        |> Task.andThen (\_ -> run perms s [ "-d", "src/Hello.gren" ])
-                        |> Task.andThen (\r -> readBack perms srcFile |> Task.map (\after -> { r = r, after = after }))
-                        |> Task.map
-                            (\res ->
-                                Expect.all
-                                    [ \_ -> Expect.equal 0 res.r.exitCode
-                                    , \_ -> Support.expectContains "diff src/Hello.gren.orig src/Hello.gren\n" res.r.stdout
-                                    , \_ -> Expect.equal dirtyHello res.after
-                                    ]
-                                    {}
-                            )
-            , U.test "-d on a directory diffs the files in it" <|
-                \s ->
-                    Support.makeProject perms s.dir dirtyHello
-                        |> Task.andThen (\_ -> run perms s [ "-d", "src" ])
-                        |> Task.map
-                            (\r ->
-                                Expect.all
-                                    [ \_ -> Expect.equal 0 r.exitCode
-                                    , \_ -> Support.expectContains "diff src/Hello.gren.orig src/Hello.gren\n" r.stdout
-                                    ]
-                                    {}
-                            )
-            , U.test "the diff names exactly the files the in-place run reformats" <|
-                \s ->
-                    -- Two files, one already formatted: the clean one must not
-                    -- appear in the diff, and the dirty one must.
-                    Support.makeProject perms s.dir dirtyHello
-                        |> Task.andThen (\_ -> run perms s [])
-                        |> Task.andThen
-                            (\_ ->
-                                Support.writeText perms
-                                    (Path.append (Path.fromPosixString "src/Other.gren") s.dir)
-                                    "module Other exposing (y)\ny : Int\ny =\n    2\n"
-                            )
-                        |> Task.andThen (\_ -> run perms s [ "--diff" ])
-                        |> Task.map
-                            (\r ->
-                                Expect.all
-                                    [ \_ -> Support.expectContains "src/Other.gren" r.stdout
-                                    , \_ -> Support.expectNotContains "src/Hello.gren" r.stdout
-                                    ]
-                                    {}
-                            )
-            , U.test "a CRLF-only difference gets a note instead of an empty diff" <|
-                \s ->
-                    let
-                        srcFile =
-                            Path.append (Path.fromPosixString "src/Hello.gren") s.dir
-                    in
-                    Support.makeProject perms s.dir dirtyHello
-                        |> Task.andThen (\_ -> run perms s [])
-                        |> Task.andThen (\_ -> readBack perms srcFile)
-                        |> Task.andThen (\lf -> Support.writeText perms srcFile (String.replace "\n" "\r\n" lf))
-                        |> Task.andThen (\_ -> run perms s [ "--diff" ])
-                        |> Task.map
-                            (\r ->
-                                Expect.all
-                                    [ \_ -> Expect.equal 0 r.exitCode
-                                    , \_ -> Support.expectContains "diff src/Hello.gren.orig src/Hello.gren\n" r.stdout
-                                    , \_ -> Support.expectContains "\\ Only the line endings differ" r.stdout
-                                    ]
-                                    {}
-                            )
-            , U.test "a missing final newline gets a note instead of an empty diff" <|
-                \s ->
-                    let
-                        srcFile =
-                            Path.append (Path.fromPosixString "src/Hello.gren") s.dir
-                    in
-                    Support.makeProject perms s.dir dirtyHello
-                        |> Task.andThen (\_ -> run perms s [])
-                        |> Task.andThen (\_ -> readBack perms srcFile)
-                        |> Task.andThen (\formatted -> Support.writeText perms srcFile (String.dropLast 1 formatted))
-                        |> Task.andThen (\_ -> run perms s [ "--diff" ])
-                        |> Task.map
-                            (\r ->
-                                Expect.all
-                                    [ \_ -> Expect.equal 0 r.exitCode
-                                    , \_ -> Support.expectContains "\\ No newline at end of file." r.stdout
-                                    ]
-                                    {}
-                            )
-            , U.test "--remove-unused-imports shows the removal in the diff" <|
-                \s ->
-                    Support.makeProject perms s.dir "module Hello exposing (x)\n\nimport Dict\n\n\nx : Int\nx =\n    1\n"
-                        |> Task.andThen (\_ -> run perms s [ "--diff", "--remove-unused-imports" ])
-                        |> Task.map
-                            (\r ->
-                                Expect.all
-                                    [ \_ -> Expect.equal 0 r.exitCode
-                                    , \_ -> Support.expectContains "-import Dict" r.stdout
-                                    ]
-                                    {}
-                            )
-            , U.test "--show-progress keeps stdout a clean diff and reports on stderr" <|
-                \s ->
-                    Support.makeProject perms s.dir dirtyHello
-                        |> Task.andThen (\_ -> run perms s [ "--diff", "--show-progress" ])
-                        |> Task.map
-                            (\r ->
-                                Expect.all
-                                    [ \_ -> Expect.equal 0 r.exitCode
-                                    , \_ -> Support.expectContains "would reformat" r.stderr
-                                    , \_ -> Support.expectNotContains "would reformat" r.stdout
-                                    , \_ -> Support.expectContains "diff src/Hello.gren.orig" r.stdout
-                                    ]
-                                    {}
-                            )
-            , U.test "--diff and the in-place run agree about a CRLF file given as a path" <|
-                \s ->
-                    -- The invariant, asserted directly rather than per mode:
-                    -- whatever `--diff` says about a file, the in-place run on
-                    -- that same file has to do. A CRLF-but-otherwise-formatted
-                    -- file is where the two came apart, and it came apart in
-                    -- the path-argument mode only -- so this asks the question
-                    -- with a path argument, not a project run.
-                    let
-                        file =
-                            Path.append (Path.fromPosixString "src/Hello.gren") s.dir
-
-                        arg =
-                            [ "src/Hello.gren" ]
-                    in
-                    Support.makeProject perms s.dir dirtyHello
-                        |> Task.andThen (\_ -> run perms s arg)
-                        |> Task.andThen (\_ -> readBack perms file)
-                        |> Task.andThen (\lf -> Support.writeText perms file (String.replace "\n" "\r\n" lf))
-                        |> Task.andThen (\_ -> readBack perms file)
-                        |> Task.andThen
-                            (\before ->
-                                run perms s (Array.pushFirst "--diff" arg)
-                                    |> Task.andThen
-                                        (\d ->
-                                            run perms s arg
-                                                |> Task.andThen (\_ -> readBack perms file)
-                                                |> Task.map (\after -> { d = d, before = before, after = after })
-                                        )
-                            )
-                        |> Task.map
-                            (\res ->
-                                Expect.all
-                                    [ \_ -> Expect.equal 0 res.d.exitCode
-
-                                    -- `--diff` spoke up ...
-                                    , \_ -> Support.expectContains "diff src/Hello.gren.orig" res.d.stdout
-
-                                    -- ... and the write it described happened
-                                    , \_ -> Expect.notEqual res.before res.after
-                                    , \_ -> Expect.equal False (String.contains "\r" res.after)
-                                    ]
-                                    {}
-                            )
-            , U.test "combining --diff with a single-file inspection flag is an error" <|
-                \s ->
-                    Support.makeProject perms s.dir dirtyHello
-                        |> Task.andThen (\_ -> run perms s [ "--diff", "--show", "src/Hello.gren" ])
-                        |> Task.map
-                            (\r ->
-                                Expect.all
-                                    [ \_ -> Expect.equal 1 r.exitCode
-                                    , \_ -> Support.expectContains "Cannot combine --diff" r.stderr
-                                    ]
-                                    {}
-                            )
-            , U.test "a file that does not parse fails the run, as it does in place" <|
-                \s ->
-                    Support.makeProject perms s.dir "module Hello exposing (x)\n\nx = = =\n"
-                        |> Task.andThen (\_ -> run perms s [ "--diff" ])
-                        |> Task.map
-                            (\r ->
-                                Expect.all
-                                    [ \_ -> Expect.equal 1 r.exitCode
-                                    , \_ -> Support.expectContains "FAILED TO PARSE" r.stderr
-                                    ]
-                                    {}
-                            )
+                    arg =
+                        [ "src/Hello.gren" ]
+                in
+                Support.makeProject perms s.dir dirtyHello
+                    |> Task.andThen (\_ -> run perms s arg)
+                    |> Task.andThen (\_ -> readBack perms file)
+                    |> Task.andThen (\lf -> Support.writeText perms file (String.replace "\n" "\r\n" lf))
+                    |> Task.andThen (\_ -> readBack perms file)
+                    |> Task.andThen
+                        (\before ->
+                            run perms s (Array.pushFirst "--diff" arg)
+                                |> Task.andThen
+                                    (\d ->
+                                        run perms s arg
+                                            |> Task.andThen (\_ -> readBack perms file)
+                                            |> Task.map (\after -> { d = d, before = before, after = after })
+                                    )
+                        )
+                    |> Task.map
+                        (\res ->
+                            Expect.all
+                                [ \_ -> Expect.equal 0 res.d.exitCode
+                                , -- `--diff` spoke up ...
+                                  \_ -> Support.expectContains "diff src/Hello.gren.orig" res.d.stdout
+                                , -- ... and the write it described happened
+                                  \_ -> Expect.notEqual res.before res.after
+                                , \_ -> Expect.equal False (String.contains "\r" res.after)
+                                ]
+                                {}
+                        )
+            , U.test "combining --diff with a single-file inspection flag is an error" <| \s ->
+                Support.makeProject perms s.dir dirtyHello
+                    |> Task.andThen (\_ -> run perms s [ "--diff", "--show", "src/Hello.gren" ])
+                    |> Task.map
+                        (\r ->
+                            Expect.all
+                                [ \_ -> Expect.equal 1 r.exitCode
+                                , \_ -> Support.expectContains "Cannot combine --diff" r.stderr
+                                ]
+                                {}
+                        )
+            , U.test "a file that does not parse fails the run, as it does in place" <| \s ->
+                Support.makeProject perms s.dir "module Hello exposing (x)\n\nx = = =\n"
+                    |> Task.andThen (\_ -> run perms s [ "--diff" ])
+                    |> Task.map
+                        (\r ->
+                            Expect.all
+                                [ \_ -> Expect.equal 1 r.exitCode
+                                , \_ -> Support.expectContains "FAILED TO PARSE" r.stderr
+                                ]
+                                {}
+                        )
             ]
         }
 

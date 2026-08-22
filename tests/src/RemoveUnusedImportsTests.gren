@@ -54,126 +54,86 @@ removeUnusedImportsFlagSuite perms =
         , setUp = Support.makeScratch perms
         , tearDown = Support.removeScratch perms
         , tests =
-            [ U.test "plain removal closes the gap so the surrounding imports sort together" <|
-                \s ->
-                    expectRemoveUnusedImports perms s "PlainRemoval"
-            , U.test "a leading line comment survives as a placeholder instead of being orphaned" <|
-                \s ->
-                    expectRemoveUnusedImports perms s "LineComment"
-            , U.test "a leading comment separated by a blank line is not contiguous, so the removed import leaves no placeholder" <|
-                \s ->
-                    expectRemoveUnusedImports perms s "NonContiguousLeadingComment"
-            , U.test "a leading block comment gets the same placeholder treatment as a line comment" <|
-                \s ->
-                    expectRemoveUnusedImports perms s "BlockComment"
-            , U.test "a trailing comment on a removed import's own row is deleted with it, not turned into a placeholder" <|
-                \s ->
-                    expectRemoveUnusedImports perms s "TrailingCommentOnRemovedImport"
-            , U.test "the placeholder for an aliased import includes the alias" <|
-                \s ->
-                    expectRemoveUnusedImports perms s "Aliased"
-            , U.test "multiple stacked leading comments all survive, with a single placeholder below the whole run" <|
-                \s ->
-                    expectRemoveUnusedImports perms s "StackedLeadingComments"
-            , U.test "a placeholder comment travels with the import below it, so the surrounding imports still sort as one run" <|
-                \s ->
-                    expectRemoveUnusedImports perms s "GroupsSeparate"
-            , U.test "an effect module's `where { ... }` header positions survive the shift untouched" <|
-                \s ->
-                    expectRemoveUnusedImports perms s "EffectModule"
-            , U.test "an import used only in a port's type signature is kept" <|
-                \s ->
-                    expectRemoveUnusedImports perms s "PortSignatureUsage"
-            , U.test "a per-declaration doc comment after the cut is shifted along with its declaration" <|
-                \s ->
-                    expectRemoveUnusedImports perms s "DeclarationDocComment"
-            , U.test "an exposed Type(..) is kept even when the type name itself is never referenced" <|
-                \s ->
-                    expectRemoveUnusedImports perms s "OpenType"
-            , U.test "an unused name is dropped from a kept import's exposing list, while an import whose every exposed name is unused is removed entirely" <|
-                \s ->
-                    expectRemoveUnusedImports perms s "PartialExposingTrim"
-            , U.test "an import kept only by qualified usage has its whole exposing list trimmed away, leaving a bare import" <|
-                \s ->
-                    expectRemoveUnusedImports perms s "TrimmedToBareImport"
-            , U.test "nested lambda/when/let content after the cut is shifted correctly" <|
-                \s ->
-                    expectRemoveUnusedImports perms s "NestedContent"
-            , U.test "a qualifier used only inside a nested constructor-pattern argument still keeps the import" <|
-                \s ->
-                    expectRemoveUnusedImports perms s "NestedCtorArgUsage"
-            , U.test "a qualifier used only inside a record-pattern field's nested pattern still keeps the import" <|
-                \s ->
-                    expectRemoveUnusedImports perms s "NestedRecordPatternArgUsage"
-            , U.test "an import-level `exposing (..)` is kept even though nothing in the file references it, unlike a same-looking unused explicit import" <|
-                \s ->
-                    expectRemoveUnusedImports perms s "OpenImportExposing"
-            , U.test "a bare exposed type name (no `(..)`) follows the same used/unused rule as any other exposed name" <|
-                \s ->
-                    expectRemoveUnusedImports perms s "BareExposedType"
-            , U.test "an exposed operator follows the same used/unused rule as any other exposed name" <|
-                \s ->
-                    expectRemoveUnusedImports perms s "ExposedOperator"
-            , U.test "a trailing comment on a trimmed exposed name's own row is deleted with it, but a leading own-line comment above a trimmed name survives untouched" <|
-                \s ->
-                    expectRemoveUnusedImports perms s "TrimmedExposingComments"
-            , U.test "on a one-row exposing list only the dropped name's own trailing comment goes -- a kept name's and the whole import's survive" <|
-                \s ->
-                    expectRemoveUnusedImports perms s "TrimmedExposingTrailingComment"
-            , U.test "a comment nested in a wholly removed import's exposing list is deleted along with it" <|
-                \s ->
-                    expectRemoveUnusedImports perms s "RemovedImportExposingComment"
-            , U.test "two imports of the same module with different aliases are judged independently, not merged" <|
-                \s ->
-                    expectRemoveUnusedImports perms s "DifferentAliasIndependent"
-            , U.test "a used import duplicated verbatim collapses to a single instance" <|
-                \s ->
-                    expectRemoveUnusedImports perms s "DuplicateModuleUsed"
-            , U.test "an unused import duplicated verbatim has every instance removed" <|
-                \s ->
-                    expectRemoveUnusedImports perms s "DuplicateModuleUnused"
-            , U.test "an aliased import is kept when only its alias-qualified name is used, not any exposed name" <|
-                \s ->
-                    expectRemoveUnusedImports perms s "AliasedUsed"
-            , U.test "an aliased import's exposing list is trimmed by bare-name usage, unaffected by the alias" <|
-                \s ->
-                    expectRemoveUnusedImports perms s "AliasedUsedWithExposing"
-            , U.test "a used name repeated in one import's exposing list collapses to a single instance" <|
-                \s ->
-                    expectRemoveUnusedImports perms s "DuplicateExposedNameUsed"
-            , U.test "an unused name repeated in one import's exposing list has every instance removed" <|
-                \s ->
-                    expectRemoveUnusedImports perms s "DuplicateExposedNameUnused"
-            , U.test "emptying the import list hands the module's docs slot a placeholder, so the first declaration keeps its own doc comment" <|
-                \s ->
-                    expectRemoveUnusedImports perms s "DocShield"
-            , U.test "the docs-slot placeholder names the alias, same as the line placeholder does" <|
-                \s ->
-                    expectRemoveUnusedImports perms s "DocShieldAliased"
-            , U.test "a leading comment's line placeholder keeps its row and the docs-slot placeholder takes the row below it" <|
-                \s ->
-                    expectRemoveUnusedImports perms s "DocShieldLeadingComment"
-            , U.test "a module with a doc comment of its own already fills the slot, so no placeholder is added" <|
-                \s ->
-                    expectRemoveUnusedImports perms s "DocShieldModuleDocPresent"
-            , U.test "one surviving import shields the declaration's doc by itself, so no placeholder is added" <|
-                \s ->
-                    expectRemoveUnusedImports perms s "DocShieldImportSurvives"
-            , U.test "an undocumented first declaration closes the docs slot, so a doc on a LATER declaration needs no placeholder" <|
-                \s ->
-                    expectRemoveUnusedImports perms s "DocShieldLaterDeclaration"
-            , U.test "a block comment glued in front of a removed import goes with it however many rows it spans, and the comment below it stays put" <|
-                \s ->
-                    expectRemoveUnusedImports perms s "GluedLeadSpansRows"
-            , U.test "an own-line run above a glued lead is not glued to anything -- it survives, with a placeholder below it" <|
-                \s ->
-                    expectRemoveUnusedImports perms s "GluedLeadWithRunAbove"
-            , U.test "a removed import takes its whole trailing comment CHAIN with it, including a link on the row the one before it closes on" <|
-                \s ->
-                    expectRemoveUnusedImports perms s "TrailingCommentChain"
-            , U.test "a comment one row further down is not a chain link -- it leads the next import and is left alone" <|
-                \s ->
-                    expectRemoveUnusedImports perms s "TrailingCommentChainBreaks"
+            [ U.test "plain removal closes the gap so the surrounding imports sort together" <| \s ->
+                expectRemoveUnusedImports perms s "PlainRemoval"
+            , U.test "a leading line comment survives as a placeholder instead of being orphaned" <| \s ->
+                expectRemoveUnusedImports perms s "LineComment"
+            , U.test "a leading comment separated by a blank line is not contiguous, so the removed import leaves no placeholder" <| \s ->
+                expectRemoveUnusedImports perms s "NonContiguousLeadingComment"
+            , U.test "a leading block comment gets the same placeholder treatment as a line comment" <| \s ->
+                expectRemoveUnusedImports perms s "BlockComment"
+            , U.test "a trailing comment on a removed import's own row is deleted with it, not turned into a placeholder" <| \s ->
+                expectRemoveUnusedImports perms s "TrailingCommentOnRemovedImport"
+            , U.test "the placeholder for an aliased import includes the alias" <| \s ->
+                expectRemoveUnusedImports perms s "Aliased"
+            , U.test "multiple stacked leading comments all survive, with a single placeholder below the whole run" <| \s ->
+                expectRemoveUnusedImports perms s "StackedLeadingComments"
+            , U.test "a placeholder comment travels with the import below it, so the surrounding imports still sort as one run" <| \s ->
+                expectRemoveUnusedImports perms s "GroupsSeparate"
+            , U.test "an effect module's `where { ... }` header positions survive the shift untouched" <| \s ->
+                expectRemoveUnusedImports perms s "EffectModule"
+            , U.test "an import used only in a port's type signature is kept" <| \s ->
+                expectRemoveUnusedImports perms s "PortSignatureUsage"
+            , U.test "a per-declaration doc comment after the cut is shifted along with its declaration" <| \s ->
+                expectRemoveUnusedImports perms s "DeclarationDocComment"
+            , U.test "an exposed Type(..) is kept even when the type name itself is never referenced" <| \s ->
+                expectRemoveUnusedImports perms s "OpenType"
+            , U.test "an unused name is dropped from a kept import's exposing list, while an import whose every exposed name is unused is removed entirely" <| \s ->
+                expectRemoveUnusedImports perms s "PartialExposingTrim"
+            , U.test "an import kept only by qualified usage has its whole exposing list trimmed away, leaving a bare import" <| \s ->
+                expectRemoveUnusedImports perms s "TrimmedToBareImport"
+            , U.test "nested lambda/when/let content after the cut is shifted correctly" <| \s ->
+                expectRemoveUnusedImports perms s "NestedContent"
+            , U.test "a qualifier used only inside a nested constructor-pattern argument still keeps the import" <| \s ->
+                expectRemoveUnusedImports perms s "NestedCtorArgUsage"
+            , U.test "a qualifier used only inside a record-pattern field's nested pattern still keeps the import" <| \s ->
+                expectRemoveUnusedImports perms s "NestedRecordPatternArgUsage"
+            , U.test "an import-level `exposing (..)` is kept even though nothing in the file references it, unlike a same-looking unused explicit import" <| \s ->
+                expectRemoveUnusedImports perms s "OpenImportExposing"
+            , U.test "a bare exposed type name (no `(..)`) follows the same used/unused rule as any other exposed name" <| \s ->
+                expectRemoveUnusedImports perms s "BareExposedType"
+            , U.test "an exposed operator follows the same used/unused rule as any other exposed name" <| \s ->
+                expectRemoveUnusedImports perms s "ExposedOperator"
+            , U.test "a trailing comment on a trimmed exposed name's own row is deleted with it, but a leading own-line comment above a trimmed name survives untouched" <| \s ->
+                expectRemoveUnusedImports perms s "TrimmedExposingComments"
+            , U.test "on a one-row exposing list only the dropped name's own trailing comment goes -- a kept name's and the whole import's survive" <| \s ->
+                expectRemoveUnusedImports perms s "TrimmedExposingTrailingComment"
+            , U.test "a comment nested in a wholly removed import's exposing list is deleted along with it" <| \s ->
+                expectRemoveUnusedImports perms s "RemovedImportExposingComment"
+            , U.test "two imports of the same module with different aliases are judged independently, not merged" <| \s ->
+                expectRemoveUnusedImports perms s "DifferentAliasIndependent"
+            , U.test "a used import duplicated verbatim collapses to a single instance" <| \s ->
+                expectRemoveUnusedImports perms s "DuplicateModuleUsed"
+            , U.test "an unused import duplicated verbatim has every instance removed" <| \s ->
+                expectRemoveUnusedImports perms s "DuplicateModuleUnused"
+            , U.test "an aliased import is kept when only its alias-qualified name is used, not any exposed name" <| \s ->
+                expectRemoveUnusedImports perms s "AliasedUsed"
+            , U.test "an aliased import's exposing list is trimmed by bare-name usage, unaffected by the alias" <| \s ->
+                expectRemoveUnusedImports perms s "AliasedUsedWithExposing"
+            , U.test "a used name repeated in one import's exposing list collapses to a single instance" <| \s ->
+                expectRemoveUnusedImports perms s "DuplicateExposedNameUsed"
+            , U.test "an unused name repeated in one import's exposing list has every instance removed" <| \s ->
+                expectRemoveUnusedImports perms s "DuplicateExposedNameUnused"
+            , U.test "emptying the import list hands the module's docs slot a placeholder, so the first declaration keeps its own doc comment" <| \s ->
+                expectRemoveUnusedImports perms s "DocShield"
+            , U.test "the docs-slot placeholder names the alias, same as the line placeholder does" <| \s ->
+                expectRemoveUnusedImports perms s "DocShieldAliased"
+            , U.test "a leading comment's line placeholder keeps its row and the docs-slot placeholder takes the row below it" <| \s ->
+                expectRemoveUnusedImports perms s "DocShieldLeadingComment"
+            , U.test "a module with a doc comment of its own already fills the slot, so no placeholder is added" <| \s ->
+                expectRemoveUnusedImports perms s "DocShieldModuleDocPresent"
+            , U.test "one surviving import shields the declaration's doc by itself, so no placeholder is added" <| \s ->
+                expectRemoveUnusedImports perms s "DocShieldImportSurvives"
+            , U.test "an undocumented first declaration closes the docs slot, so a doc on a LATER declaration needs no placeholder" <| \s ->
+                expectRemoveUnusedImports perms s "DocShieldLaterDeclaration"
+            , U.test "a block comment glued in front of a removed import goes with it however many rows it spans, and the comment below it stays put" <| \s ->
+                expectRemoveUnusedImports perms s "GluedLeadSpansRows"
+            , U.test "an own-line run above a glued lead is not glued to anything -- it survives, with a placeholder below it" <| \s ->
+                expectRemoveUnusedImports perms s "GluedLeadWithRunAbove"
+            , U.test "a removed import takes its whole trailing comment CHAIN with it, including a link on the row the one before it closes on" <| \s ->
+                expectRemoveUnusedImports perms s "TrailingCommentChain"
+            , U.test "a comment one row further down is not a chain link -- it leads the next import and is left alone" <| \s ->
+                expectRemoveUnusedImports perms s "TrailingCommentChainBreaks"
             ]
         }
 

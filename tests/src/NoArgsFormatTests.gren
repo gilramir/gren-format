@@ -36,57 +36,53 @@ noArgsFormatSuite perms =
         , setUp = makeScratch perms
         , tearDown = removeScratch perms
         , tests =
-            [ U.test "formats project files in place" <|
-                \s ->
-                    let
-                        srcFile =
-                            Path.append (Path.fromPosixString "src/Hello.gren") s.dir
-                    in
-                    Support.makeProject perms s.dir dirtyHello
-                        |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Just (Path.toPosixString s.dir) } [])
-                        |> Task.andThen (\r -> readBack perms srcFile |> Task.map (\after -> { r = r, after = after }))
-                        |> Task.map
-                            (\res ->
-                                Expect.all
-                                    [ \_ -> Expect.equal 0 res.r.exitCode
-                                    , \_ -> Support.expectContains "Hello.gren" res.r.stdout
-                                    , \_ -> Support.expectContains "\n\n\n" res.after
-                                    ]
-                                    {}
-                            )
-            , U.test "summary reports reformatted count" <|
-                \s ->
-                    Support.makeProject perms s.dir dirtyHello
-                        |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Just (Path.toPosixString s.dir) } [])
-                        |> Task.map (\r -> Support.expectContains "1 files reformatted" r.stdout)
-            , U.test "summary reports 0 reformatted when files already formatted" <|
-                \s ->
-                    Support.makeProject perms s.dir dirtyHello
-                        |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Just (Path.toPosixString s.dir) } [])
-                        |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Just (Path.toPosixString s.dir) } [])
-                        |> Task.map (\r -> Support.expectContains "0 files reformatted" r.stdout)
-            , U.test "a CRLF project formats in place like any other, and the run after it is a no-op" <|
-                \s ->
-                    let
-                        srcFile =
-                            Path.append (Path.fromPosixString "src/Hello.gren") s.dir
+            [ U.test "formats project files in place" <| \s ->
+                let
+                    srcFile =
+                        Path.append (Path.fromPosixString "src/Hello.gren") s.dir
+                in
+                Support.makeProject perms s.dir dirtyHello
+                    |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Just (Path.toPosixString s.dir) } [])
+                    |> Task.andThen (\r -> readBack perms srcFile |> Task.map (\after -> { r = r, after = after }))
+                    |> Task.map
+                        (\res ->
+                            Expect.all
+                                [ \_ -> Expect.equal 0 res.r.exitCode
+                                , \_ -> Support.expectContains "Hello.gren" res.r.stdout
+                                , \_ -> Support.expectContains "\n\n\n" res.after
+                                ]
+                                {}
+                        )
+            , U.test "summary reports reformatted count" <| \s ->
+                Support.makeProject perms s.dir dirtyHello
+                    |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Just (Path.toPosixString s.dir) } [])
+                    |> Task.map (\r -> Support.expectContains "1 files reformatted" r.stdout)
+            , U.test "summary reports 0 reformatted when files already formatted" <| \s ->
+                Support.makeProject perms s.dir dirtyHello
+                    |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Just (Path.toPosixString s.dir) } [])
+                    |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Just (Path.toPosixString s.dir) } [])
+                    |> Task.map (\r -> Support.expectContains "0 files reformatted" r.stdout)
+            , U.test "a CRLF project formats in place like any other, and the run after it is a no-op" <| \s ->
+                let
+                    srcFile =
+                        Path.append (Path.fromPosixString "src/Hello.gren") s.dir
 
-                        runOnce =
-                            Support.runApp perms s.appPath { cwd = Just (Path.toPosixString s.dir) } []
-                    in
-                    readBack perms (Path.fromPosixString "testfiles/CrlfProject/DocBodyAndMultilineString.gren")
-                        |> Task.andThen (\lf -> Support.makeProject perms s.dir (String.replace "\n" "\r\n" lf))
-                        |> Task.andThen (\_ -> runOnce)
-                        |> Task.andThen (\first -> runOnce |> Task.map (\second -> { first = first, second = second }))
-                        |> Task.andThen (\rs -> readBack perms srcFile |> Task.map (\after -> { rs = rs, after = after }))
-                        |> Task.map
-                            (\res ->
-                                Expect.all
-                                    [ \_ -> Expect.equal 0 res.rs.first.exitCode
-                                    , \_ -> Expect.equal False (String.contains "\r" res.after)
-                                    , \_ -> Support.expectContains "0 files reformatted" res.rs.second.stdout
-                                    ]
-                                    {}
-                            )
+                    runOnce =
+                        Support.runApp perms s.appPath { cwd = Just (Path.toPosixString s.dir) } []
+                in
+                readBack perms (Path.fromPosixString "testfiles/CrlfProject/DocBodyAndMultilineString.gren")
+                    |> Task.andThen (\lf -> Support.makeProject perms s.dir (String.replace "\n" "\r\n" lf))
+                    |> Task.andThen (\_ -> runOnce)
+                    |> Task.andThen (\first -> runOnce |> Task.map (\second -> { first = first, second = second }))
+                    |> Task.andThen (\rs -> readBack perms srcFile |> Task.map (\after -> { rs = rs, after = after }))
+                    |> Task.map
+                        (\res ->
+                            Expect.all
+                                [ \_ -> Expect.equal 0 res.rs.first.exitCode
+                                , \_ -> Expect.equal False (String.contains "\r" res.after)
+                                , \_ -> Support.expectContains "0 files reformatted" res.rs.second.stdout
+                                ]
+                                {}
+                        )
             ]
         }

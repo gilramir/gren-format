@@ -107,19 +107,16 @@ main =
         , command = command
         , init =
             \_env toProgram ->
-                Init.await FileSystem.initialize <|
-                    \fsPermission ->
-                        Init.await Terminal.initialize <|
-                            \terminalConfig ->
-                                Init.awaitTask Node.getEnvironmentVariables <|
-                                    \envVars ->
-                                        let
-                                            -- Color only when stderr/stdout is an interactive terminal
-                                            -- and the user hasn't set NO_COLOR (https://no-color.org).
-                                            useColor =
-                                                terminalConfig /= Nothing && not (Dict.member "NO_COLOR" envVars)
-                                        in
-                                        toProgram { fs = fsPermission, useColor = useColor }
+                Init.await FileSystem.initialize <| \fsPermission ->
+                Init.await Terminal.initialize <| \terminalConfig ->
+                Init.awaitTask Node.getEnvironmentVariables <| \envVars ->
+                    let
+                        -- Color only when stderr/stdout is an interactive terminal
+                        -- and the user hasn't set NO_COLOR (https://no-color.org).
+                        useColor =
+                            terminalConfig /= Nothing && not (Dict.member "NO_COLOR" envVars)
+                    in
+                    toProgram { fs = fsPermission, useColor = useColor }
         , onCommand = onCommand
         }
 

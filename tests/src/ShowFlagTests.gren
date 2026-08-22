@@ -22,30 +22,27 @@ showFlagSuite perms =
         , setUp = makeScratch perms
         , tearDown = removeScratch perms
         , tests =
-            [ U.test "formats a file to stdout" <|
-                \s ->
-                    Support.runApp perms s.appPath { cwd = Nothing } [ "--show", helloFixture ]
-                        |> Task.map
-                            (\r ->
-                                Expect.all
-                                    [ \_ -> Expect.equal 0 r.exitCode
-                                    , \_ -> Support.expectContains "module Hello" r.stdout
-                                    , \_ -> Expect.equal "" r.stderr
-                                    ]
-                                    {}
-                            )
-            , U.test "missing file exits nonzero" <|
-                \s ->
-                    Support.runApp perms s.appPath { cwd = Nothing } [ "--show", "/nonexistent/Missing.gren" ]
-                        |> Task.map (\r -> Expect.notEqual 0 r.exitCode)
-            , U.test "unparseable file exits nonzero" <|
-                \s ->
-                    let
-                        bad =
-                            Path.append (Path.fromPosixString "Bad.gren") s.dir
-                    in
-                    Support.writeText perms bad "this is not valid gren syntax\n"
-                        |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Nothing } [ "--show", Path.toPosixString bad ])
-                        |> Task.map (\r -> Expect.notEqual 0 r.exitCode)
+            [ U.test "formats a file to stdout" <| \s ->
+                Support.runApp perms s.appPath { cwd = Nothing } [ "--show", helloFixture ]
+                    |> Task.map
+                        (\r ->
+                            Expect.all
+                                [ \_ -> Expect.equal 0 r.exitCode
+                                , \_ -> Support.expectContains "module Hello" r.stdout
+                                , \_ -> Expect.equal "" r.stderr
+                                ]
+                                {}
+                        )
+            , U.test "missing file exits nonzero" <| \s ->
+                Support.runApp perms s.appPath { cwd = Nothing } [ "--show", "/nonexistent/Missing.gren" ]
+                    |> Task.map (\r -> Expect.notEqual 0 r.exitCode)
+            , U.test "unparseable file exits nonzero" <| \s ->
+                let
+                    bad =
+                        Path.append (Path.fromPosixString "Bad.gren") s.dir
+                in
+                Support.writeText perms bad "this is not valid gren syntax\n"
+                    |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Nothing } [ "--show", Path.toPosixString bad ])
+                    |> Task.map (\r -> Expect.notEqual 0 r.exitCode)
             ]
         }
