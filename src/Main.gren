@@ -40,6 +40,7 @@ type alias FormatFlags =
     , box : Maybe Path
     , auditPredicates : Maybe Path
     , decisions : Maybe Path
+    , version : Bool
     }
 
 
@@ -59,7 +60,7 @@ command =
             }
     , flags =
         AP.initFlags
-            (\diff removeUnusedImports showProgress show showFirst preAst preContext postAst postContext lpt box auditPredicates decisions ->
+            (\diff removeUnusedImports showProgress show showFirst preAst preContext postAst postContext lpt box auditPredicates decisions version ->
                 { files = []
                 , diff = diff
                 , removeUnusedImports = removeUnusedImports
@@ -74,6 +75,7 @@ command =
                 , box = box
                 , auditPredicates = auditPredicates
                 , decisions = decisions
+                , version = version
                 }
             )
             |> AP.toggle (AP.Both { long = "diff", short = "d" }) "Print a unified diff of what formatting would change, without modifying any file"
@@ -89,6 +91,7 @@ command =
             |> AP.flag (AP.LongOnly "box") AP.pathParser "Parse a single file and print the Box render tree as JSON to stdout"
             |> AP.flag (AP.LongOnly "audit-predicates") AP.pathParser "Parse a single file and print, as JSON, every layout predicate that claims a hard break the renderer does not emit"
             |> AP.flag (AP.LongOnly "decisions") AP.pathParser "Format a single file twice and print, as JSON, which layout decisions differed between the two passes"
+            |> AP.toggle (AP.LongOnly "version") "Print the gren-format version and exit"
     , commonDescription = Nothing
     , summary = "Format Gren source code."
     , example = PP.empty
@@ -159,7 +162,14 @@ onCommand env context flags =
             , progress = progress
             }
     in
-    if flags.diff && anyFlagSet then
+    if flags.version then
+        -- `Argparse.Program` also intercepts a *leading* `--version` before the
+        -- parser ever runs; declaring it as a real flag as well is what puts it
+        -- in `--help` and lets it work in any position. Both paths print this.
+        Stream.Log.line env.stdout Version.version
+            |> Task.map (\_ -> {})
+
+    else if flags.diff && anyFlagSet then
         Task.fail (Program.ExitMessage "Cannot combine --diff with the single-file inspection flags. Use --help for options.")
 
     else if not (Array.isEmpty flags.files) then

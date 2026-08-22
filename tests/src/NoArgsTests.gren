@@ -1,7 +1,7 @@
 module NoArgsTests exposing (noArgsSuite)
 
 {-| CLI integration tests for running `gren-format` with no arguments at all
-(and `--help`).
+(and `--help` / `--version`).
 
 @docs noArgsSuite
 -}
@@ -43,8 +43,40 @@ noArgsSuite perms =
                                     [ \_ -> Expect.equal 0 r.exitCode
                                     , \_ -> Support.expectContains "--show" r.stdout
                                     , \_ -> Support.expectContains "--lpt" r.stdout
+                                    , \_ -> Support.expectContains "--version" r.stdout
                                     ]
                                     {}
+                            )
+            , U.test "version flag prints a version and exits 0" <|
+                \s ->
+                    Support.runApp perms s.appPath { cwd = Nothing } [ "--version" ]
+                        |> Task.map
+                            (\r ->
+                                Expect.all
+                                    [ \_ -> Expect.equal 0 r.exitCode
+                                    , \_ -> Expect.notEqual "" (String.trim r.stdout)
+                                    , \_ -> Support.expectContains "." r.stdout
+                                    ]
+                                    {}
+                            )
+
+            -- `Argparse.Program` only intercepts a *leading* `--version`; the
+            -- declared flag is what makes it work anywhere on the line, and
+            -- short-circuit the mode it was combined with.
+            , U.test "version flag works after another flag, with identical output" <|
+                \s ->
+                    Support.runApp perms s.appPath { cwd = Nothing } [ "--version" ]
+                        |> Task.andThen
+                            (\leading ->
+                                Support.runApp perms s.appPath { cwd = Nothing } [ "--diff", "--version" ]
+                                    |> Task.map
+                                        (\trailing ->
+                                            Expect.all
+                                                [ \_ -> Expect.equal 0 trailing.exitCode
+                                                , \_ -> Expect.equal leading.stdout trailing.stdout
+                                                ]
+                                                {}
+                                        )
                             )
             ]
         }

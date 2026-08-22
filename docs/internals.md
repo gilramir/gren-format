@@ -56,6 +56,7 @@ locates the project, builds the run's `Format.Config`, and hands it to either
 | `box` | `--box <path>` | Print the `Box` render tree as JSON |
 | `auditPredicates` | `--audit-predicates <path>` | Print, as JSON, every layout predicate claiming a hard break the renderer does not emit (see `gren-format-lib/tests/audit-predicates.py`) |
 | `decisions` | `--decisions <path>` | Format the file twice and print, as JSON, which layout *decisions* differed between the passes (see `gren-format-lib/tests/check-decision-stability.py`) |
+| `version` | `--version` | Print the version string from `src/Version.gren` and exit; short-circuits every other mode |
 
 ## `Format.gren`
 
