@@ -24,7 +24,7 @@ node app --show MyFile.gren      # one file to stdout, with all checks
 
 1. **Positional paths** → format those files/directories in place. Combining
    paths with a single-file debug flag is an error.
-2. **A single-file debug flag** (`--show`, `--lpt`, `--box`, `--pre-ast`,
+2. **A single-file debug flag** (`--show`, `--lpt`, `--rt`, `--box`, `--pre-ast`,
    `--pre-context`, `--post-ast`, `--post-context`, `--decisions`,
    `--audit-predicates`, `--show-first`) → run that inspection, write nothing.
 3. **No arguments** → format every source file in the project in place; needs a
@@ -54,7 +54,7 @@ want the verdict — `node app --show F.gren > /dev/null && echo clean`.
 ## Tests
 
 ```bash
-cd gren-format && devbox run test    # builds ./app + the test app, runs all 82
+cd gren-format && devbox run test    # builds ./app + the test app, runs all 84
 ```
 
 CLI integration tests are in `tests/`, written in Gren on

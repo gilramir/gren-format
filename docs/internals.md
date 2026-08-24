@@ -53,7 +53,8 @@ locates the project, builds the run's `Format.Config`, and hands it to either
 | `postAst` | `--post-ast <path>` | Format, verify ASTs match, print the formatted AST as JSON |
 | `postContext` | `--post-context <path>` | Format, verify ASTs match, print just the formatted file's parse `Context` as JSON |
 | `lpt` | `--lpt <path>` | Print the Logical Printing Tree as JSON |
-| `box` | `--box <path>` | Print the `Box` render tree as JSON |
+| `rt` | `--rt <path>` | Print the render tree as JSON — the LPT lowered through `Formatter.RenderTree`, with the source positions stripped |
+| `box` | `--box <path>` | Print the `Box` tree — the render plan — as JSON |
 | `auditPredicates` | `--audit-predicates <path>` | Print, as JSON, every layout predicate claiming a hard break the renderer does not emit (see `gren-format-lib/tests/audit-predicates.py`) |
 | `decisions` | `--decisions <path>` | Format the file twice and print, as JSON, which layout *decisions* differed between the passes (see `gren-format-lib/tests/check-decision-stability.py`) |
 | `version` | `--version` | Print the version string from `src/Version.gren` and exit; short-circuits every other mode |

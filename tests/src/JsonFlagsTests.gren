@@ -1,7 +1,7 @@
 module JsonFlagsTests exposing (jsonFlagsSuite)
 
 {-| CLI integration tests for the JSON debug flags: `--pre-ast`,
-`--pre-context`, `--post-ast`, `--post-context`, `--lpt`, `--box`,
+`--pre-context`, `--post-ast`, `--post-context`, `--lpt`, `--rt`, `--box`,
 `--decisions`.
 
 @docs jsonFlagsSuite
@@ -38,6 +38,29 @@ jsonFlagsSuite perms =
             , U.test "lpt outputs valid json" <| \appPath ->
                 runJson perms appPath "--lpt"
                     |> Task.map (\r -> jsonOk r (Support.expectJsonValid r.stdout))
+            , U.test "rt outputs json with type, flags and children" <| \appPath ->
+                runJson perms appPath "--rt"
+                    |> Task.map (\r -> jsonOk r (Support.expectJsonHasFields [ "type", "flags", "children" ] r.stdout))
+            , U.test "rt carries no source positions, where lpt does" <| \appPath ->
+                -- The stage barrier, asserted from outside: `RenderShape` has no
+                -- `Located` to print. Checking only that `--rt` lacks `startRow`
+                -- would pass on empty output, so the same fixture's `--lpt` has to
+                -- show one -- that is what makes the absence mean something.
+                runJson perms appPath "--lpt"
+                    |> Task.andThen
+                        (\lptResult ->
+                            runJson perms appPath "--rt"
+                                |> Task.map
+                                    (\rtResult ->
+                                        Expect.all
+                                            [ \_ -> Expect.equal 0 lptResult.exitCode
+                                            , \_ -> Expect.equal 0 rtResult.exitCode
+                                            , \_ -> Support.expectContains "startRow" lptResult.stdout
+                                            , \_ -> Support.expectNotContains "startRow" rtResult.stdout
+                                            ]
+                                            {}
+                                    )
+                        )
             , U.test "box outputs a json array" <| \appPath ->
                 runJson perms appPath "--box"
                     |> Task.map (\r -> jsonOk r (Support.expectJsonArray r.stdout))

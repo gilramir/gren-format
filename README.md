@@ -375,7 +375,8 @@ These flags operate on a single file and write to stdout instead of disk:
 | `--post-ast <file>` | Format, verify ASTs match, print formatted AST as JSON |
 | `--post-context <file>` | Format, print parse Context (comments) as JSON |
 | `--lpt <file>` | Print Logical Printing Tree as JSON |
-| `--box <file>` | Print the `Box` render tree as a JSON |
+| `--rt <file>` | Print the render tree as JSON — the same tree with the source positions stripped, as the renderer receives it |
+| `--box <file>` | Print the `Box` tree — the render plan — as JSON |
 
 `--show` respects `--remove-unused-imports`. The other debug flags operate
 on the raw AST and do not. None of them can be combined with `--diff`, which

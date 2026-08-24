@@ -16,6 +16,7 @@ module Format exposing
     , preAstFile
     , preContextFile
     , prettifyError
+    , rtFile
     , run
     , showFile
     , showFirstFile
@@ -39,6 +40,7 @@ import Formatter.Audit.PredicateAgreement as PredicateAgreement
 import Formatter.Logical exposing (makeLogicalPrintingTree)
 import Formatter.Logical.LPTJson as LPTJson
 import Formatter.Render exposing (lptToBoxJson, renderRoot)
+import Formatter.RenderTree.Json as RenderTreeJson
 import Json.Encode as Json
 import RemoveUnusedImports as RUI
 import Stream
@@ -917,6 +919,35 @@ lptFile { stdout, fsPermission } path =
 
                             Ok lpt ->
                                 Stream.Log.line stdout (LPTJson.lptToJson lpt)
+            )
+
+
+{-| Print one file's render tree as JSON -- the Logical Printing Tree as the
+renderer actually receives it, lowered through `Formatter.RenderTree`.
+
+The tree `--lpt` prints and this one are the same shape, so read them side by
+side. What only this one has is the four author-intent booleans `lower`
+computes on the way past the stage barrier: they are absent from the LPT and
+already consumed by the time there is a `Box` to dump, so `--rt` is the only
+place their values are visible. What only `--lpt` has is the source positions,
+which is the point of the barrier -- see `Formatter.RenderTree.Json`.
+-}
+rtFile : { stdout : Stream.Writable Bytes, fsPermission : FileSystem.Permission } -> Path -> Task Error {}
+rtFile { stdout, fsPermission } path =
+    readSource fsPermission path
+        |> Task.andThen
+            (\{ source } ->
+                when parseModule ParseFailure path source is
+                    Err err ->
+                        Task.fail err
+
+                    Ok { ast, payload } ->
+                        when makeLogicalPrintingTree ast payload is
+                            Err errString ->
+                                Task.fail (PrettyPrintFailure { path = path, error = errString })
+
+                            Ok lpt ->
+                                Stream.Log.line stdout (RenderTreeJson.renderTreeToJson lpt)
             )
 
 

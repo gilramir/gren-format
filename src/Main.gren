@@ -37,6 +37,7 @@ type alias FormatFlags =
     , postAst : Maybe Path
     , postContext : Maybe Path
     , lpt : Maybe Path
+    , rt : Maybe Path
     , box : Maybe Path
     , auditPredicates : Maybe Path
     , decisions : Maybe Path
@@ -60,7 +61,7 @@ command =
             }
     , flags =
         AP.initFlags
-            (\diff removeUnusedImports showProgress show showFirst preAst preContext postAst postContext lpt box auditPredicates decisions version ->
+            (\diff removeUnusedImports showProgress show showFirst preAst preContext postAst postContext lpt rt box auditPredicates decisions version ->
                 { files = []
                 , diff = diff
                 , removeUnusedImports = removeUnusedImports
@@ -72,6 +73,7 @@ command =
                 , postAst = postAst
                 , postContext = postContext
                 , lpt = lpt
+                , rt = rt
                 , box = box
                 , auditPredicates = auditPredicates
                 , decisions = decisions
@@ -88,7 +90,8 @@ command =
             |> AP.flag (AP.LongOnly "post-ast") AP.pathParser "Parse and format a file, verify the ASTs match, then print the formatted file's AST as JSON to stdout"
             |> AP.flag (AP.LongOnly "post-context") AP.pathParser "Parse and format a file, verify the ASTs match, then print the formatted file's parse Context as JSON to stdout"
             |> AP.flag (AP.LongOnly "lpt") AP.pathParser "Parse a single file and print its Logical Printing Tree as JSON to stdout"
-            |> AP.flag (AP.LongOnly "box") AP.pathParser "Parse a single file and print the Box render tree as JSON to stdout"
+            |> AP.flag (AP.LongOnly "rt") AP.pathParser "Parse a single file and print its render tree as JSON to stdout -- the Logical Printing Tree as the renderer sees it, with the source positions taken off"
+            |> AP.flag (AP.LongOnly "box") AP.pathParser "Parse a single file and print the Box tree (the render plan) as JSON to stdout"
             |> AP.flag (AP.LongOnly "audit-predicates") AP.pathParser "Parse a single file and print, as JSON, every layout predicate that claims a hard break the renderer does not emit"
             |> AP.flag (AP.LongOnly "decisions") AP.pathParser "Format a single file twice and print, as JSON, which layout decisions differed between the two passes"
             |> AP.toggle (AP.LongOnly "version") "Print the gren-format version and exit"
@@ -143,6 +146,7 @@ onCommand env context flags =
                 || flags.postAst /= Nothing
                 || flags.postContext /= Nothing
                 || flags.lpt /= Nothing
+                || flags.rt /= Nothing
                 || flags.box /= Nothing
                 || flags.auditPredicates /= Nothing
                 || flags.decisions /= Nothing
@@ -213,6 +217,7 @@ onCommand env context flags =
                     , Maybe.map (Format.postAstFile fileConfig) flags.postAst
                     , Maybe.map (Format.postContextFile fileConfig) flags.postContext
                     , Maybe.map (Format.lptFile fileConfig) flags.lpt
+                    , Maybe.map (Format.rtFile fileConfig) flags.rt
                     , Maybe.map (Format.boxFile fileConfig) flags.box
                     , Maybe.map (Format.auditPredicatesFile fileConfig) flags.auditPredicates
                     , Maybe.map (Format.decisionsFile fileConfig) flags.decisions
