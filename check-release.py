@@ -73,6 +73,7 @@ import json
 import os
 import re
 import shutil
+import socket
 import stat
 import subprocess
 import sys
@@ -80,7 +81,9 @@ import tarfile
 import tempfile
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from urllib.parse import urlsplit
 
 HERE = Path(__file__).resolve().parent
 
@@ -167,6 +170,50 @@ def http_status(url, timeout=15):
         return e.code
     except Exception:
         return None
+
+
+def drop_unreachable_ipv6(host, probe_timeout=2.0):
+    """Keep urllib from burning a whole timeout on a black-holed AAAA record.
+
+    `packages.gren-lang.org` publishes an AAAA that, from some networks, simply
+    drops packets. `socket.create_connection` walks the addresses getaddrinfo
+    returns *in order*, spending the FULL timeout on each, so every D2 lookup
+    cost the whole 15s before falling back to the IPv4 address that answers in
+    0.14s -- 7 dependencies, ~108s. curl hides this by racing the two families
+    (RFC 8305 happy eyeballs); urllib has no such thing.
+
+    So probe v6 once, and if it does not answer, filter it out of getaddrinfo
+    *for this host only* -- IPv6 to everywhere else is untouched, which matters
+    because a machine that reaches other v6 hosts fine is the normal case here.
+    Returns True if the record was dropped.
+    """
+    real = socket.getaddrinfo
+    try:
+        v6 = real(host, 443, socket.AF_INET6, socket.SOCK_STREAM)
+        v4 = real(host, 443, socket.AF_INET, socket.SOCK_STREAM)
+    except OSError:
+        return False
+    if not v6 or not v4:
+        return False  # nothing to race, or nothing to fall back to
+
+    probe = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+    probe.settimeout(probe_timeout)
+    try:
+        probe.connect(v6[0][4])
+        return False  # v6 answers; leave resolution alone
+    except OSError:
+        pass
+    finally:
+        probe.close()
+
+    def only_v4(h, *a, **kw):
+        res = real(h, *a, **kw)
+        if h == host:
+            return [r for r in res if r[0] != socket.AF_INET6] or res
+        return res
+
+    socket.getaddrinfo = only_v4
+    return True
 
 
 # --------------------------------------------------------------------------
@@ -361,9 +408,26 @@ def check_deps(rep, offline):
         rep.skip("D2", "skipping Gren registry check (--offline)")
         return
 
+    # One host, one probe, then all of them at once: sequential lookups made D2
+    # the slowest check in the script for no reason (see drop_unreachable_ipv6).
+    host = urlsplit(GREN_REGISTRY).hostname
+    if host and drop_unreachable_ipv6(host):
+        rep.warn(
+            "D2",
+            f"{host} publishes an unreachable IPv6 address -- using IPv4",
+            "Its AAAA record black-holes from this network. Left alone, every"
+            "\nlookup below would wait out the full timeout before falling back.",
+        )
+
+    pinned = sorted(direct.items())
+    with ThreadPoolExecutor(max_workers=min(8, len(pinned) or 1)) as pool:
+        statuses = pool.map(
+            lambda kv: http_status(GREN_REGISTRY.format(pkg=kv[0], version=kv[1])),
+            pinned,
+        )
+
     unpublished, unknown = [], []
-    for pkg, ver in sorted(direct.items()):
-        status = http_status(GREN_REGISTRY.format(pkg=pkg, version=ver))
+    for (pkg, ver), status in zip(pinned, statuses):
         if status is None:
             unknown.append(f"{pkg} {ver}")
         elif status != 200:
