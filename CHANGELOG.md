@@ -25,6 +25,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   than "the Box render tree", now that "render tree" names the thing `--rt`
   prints.
 
+### Changed
+
+- Built against **`gilramir/gren-format-lib` 1.1.0** (was 1.0.1):
+  fixes a bug when sorting import statements with comments  interspersed
+  through it. Fixed two  non-idempotencies.
 
 ## [1.1.0] - 2026-08-22
 
