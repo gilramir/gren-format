@@ -49,5 +49,5 @@ if [ "$version_module" != "$(cat src/Version.gren 2>/dev/null)" ]; then
     echo "build.sh: regenerated src/Version.gren for version ${pkg_version}"
 fi
 
-gren make Main
+devbox run build
 chmod +x app
