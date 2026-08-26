@@ -5,3 +5,6 @@ docs.json
 __pycache__/
 *.tgz
 node_modules/
+.envrc
+.direnv/
+result
