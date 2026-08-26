@@ -2,7 +2,7 @@
 """Every pre-deployment check for an npm release of `gren-format`, in one gate.
 
 `DEPLOY.md` walks the release by hand. This runs the *checking* half of it and
-deliberately stops short of the three irreversible steps -- `git tag`,
+deliberately stops short of the three irreversible steps -- `git tag -a`,
 `npm publish`, `git push --follow-tags` -- which stay yours to type. Nothing
 here writes to the repo except `./app`, `src/Version.gren` and
 `package-lock.json` -- the first two are what a normal `./build.sh` already
@@ -805,9 +805,14 @@ def main():
     print(f"""
 Ready to publish {version}. The irreversible steps, yours to type:
 
-  git tag {version}
+  git tag -a {version} -m {version}
   npm publish
   git push --follow-tags
+
+`-a` is load-bearing: --follow-tags pushes only ANNOTATED tags, so a plain
+`git tag {version}` would push the branch and leave the tag behind, silently.
+Do not "fix" that with --tags -- it replaces the default refspec, so
+`--follow-tags --tags` pushes the tag WITHOUT the commits. (DEPLOY.md)
 
 Afterwards, check the rendered page at npmjs.com/package/gren-format: the
 README's relative image links are not in the tarball and only resolve while

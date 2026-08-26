@@ -121,11 +121,24 @@ Every release *after* the first:
 npm version <patch|minor|major> --no-git-tag-version   # bumps package.json only
 ./build.sh                        # regenerates src/Version.gren + rebuilds ./app
 ./app --version                   # sanity: matches the new package.json
-git commit -am "Version $(node -p "require('./package.json').version")"
-git tag "$(node -p "require('./package.json').version")"
+V="$(node -p "require('./package.json').version")"
+git commit -am "Version $V"
+git tag -a "$V" -m "$V"           # -a is load-bearing; see below
 npm publish                       # prepublishOnly rebuilds once more (a no-op now)
 git push --follow-tags
 ```
+
+`git tag -a` is not cosmetic. **`--follow-tags` pushes only *annotated* tags** —
+a plain `git tag $V` makes a *lightweight* one, which `--follow-tags` skips
+without a word, so the branch goes up and the release tag silently stays local.
+That is how 1.0.0 through 1.2.0 came to be tagged lightweight here; they were
+pushed after the fact.
+
+The other way round is worse, so do not reach for it: `--tags` *replaces* the
+default refspec rather than adding to it, so `git push --follow-tags --tags`
+pushes the tag and **not the commits** — a tag on origin naming a commit nobody
+else has. If you ever do want `--tags`, the branch has to be named explicitly
+(`git push origin main --tags`), and it sends every local tag.
 
 `--no-git-tag-version` is deliberate: plain `npm version` tags immediately, which
 would capture the *old* `src/Version.gren` — the regeneration only happens on the
@@ -143,7 +156,7 @@ does not already print your account, then:
 ```bash
 ./build.sh                        # regenerates src/Version.gren + rebuilds ./app
 ./app --version                   # sanity: 1.0.0
-git tag 1.0.0
+git tag -a 1.0.0 -m 1.0.0
 npm publish
 git push --follow-tags
 ```
