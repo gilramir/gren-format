@@ -31,6 +31,10 @@ needs editing:
 - `build.sh` generates `src/Version.gren` from `package.json` before every build
 - `Main.gren` passes `Version.version` to the CLI, so `gren-format --version`
   prints whatever `package.json` says
+- `npm version` rewrites `package-lock.json`'s copy of the number too, and
+  `check-release.py`'s V6 regenerates the lock and fails if it moved -- so a
+  stale one cannot reach the tag. (It never reaches the tarball: npm always
+  excludes it, and `files` is `["app"]` anyway.)
 
 So a forgotten bump is not possible — there is no second string to forget. Do
 **not** hand-edit `src/Version.gren`; the next build overwrites it. It is

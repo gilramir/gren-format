@@ -4,10 +4,11 @@
 `DEPLOY.md` walks the release by hand. This runs the *checking* half of it and
 deliberately stops short of the three irreversible steps -- `git tag`,
 `npm publish`, `git push --follow-tags` -- which stay yours to type. Nothing
-here writes to the repo except `./app` and `src/Version.gren` (both what a
-normal `./build.sh` already does, and R3 fails if the latter actually moves);
-the tarball is packed into a temp dir and the tarball's own install goes to a
-temp prefix, never `-g`.
+here writes to the repo except `./app`, `src/Version.gren` and
+`package-lock.json` -- the first two are what a normal `./build.sh` already
+does, and R3/V6 fail if either of the latter two actually moves; the tarball is
+packed into a temp dir and the tarball's own install goes to a temp prefix,
+never `-g`.
 
 Exit status is 0 only if every check passed. WARN and SKIP never fail the run.
 
@@ -24,6 +25,9 @@ Version coherence -- `package.json` is the single source of truth (DEPLOY.md)
   V4  no `<version>` git tag exists yet, locally or on `origin`
   V5  the npm registry does not already carry `<version>` -- npm refuses a
       re-publish, so each release needs a number it has not seen
+  V6  `package-lock.json` is exactly what npm generates from `package.json`.
+      This one *regenerates* it (offline: gren-format has no npm dependencies)
+      and fails if the file moved, the same contract R3 has for `Version.gren`
 
 Dependencies -- what is pinned is what gets compiled in
   D1  no `local:` pin in `gren.json`. Publishing on one would ship a CLI built
@@ -271,6 +275,68 @@ def check_version(rep, version):
             )
         else:
             rep.ok("V5", f"{version} is free on npm (registry has: {', '.join(published[-4:])})")
+
+
+def check_lockfile(rep, version, offline):
+    """V6 -- `package-lock.json` is what npm generates from `package.json`.
+
+    Regenerating it is this script's one write to the repo beyond `./app` and
+    `src/Version.gren`, and it carries R3's contract: if the file moved, the
+    committed copy was stale, so the run FAILS and you commit the new one. R1
+    has already sworn the tree was clean, and the tag has to capture what gets
+    published.
+
+    `npm version` updates the lock on its own, so the drift this catches is the
+    hand-edit and the never-generated-since case. Nothing is fetched -- there
+    are no npm dependencies -- so the regeneration is offline and ~100ms.
+    """
+    lock = HERE / "package-lock.json"
+    before = lock.read_bytes() if lock.exists() else None
+
+    if offline or shutil.which("npm") is None:
+        why = "--offline" if offline else "npm not on PATH"
+        if before is None:
+            rep.fail("V6", f"no package-lock.json, and cannot generate one ({why})")
+            return
+        try:
+            got = json.loads(before).get("version")
+        except json.JSONDecodeError:
+            got = None
+        if got != version:
+            rep.fail(
+                "V6",
+                f"package-lock.json says {got!r}, package.json says {version!r}",
+                "Regenerate it with `npm install --package-lock-only` and commit it.",
+            )
+        else:
+            rep.skip("V6", f"package-lock.json states {version}; not regenerated ({why})")
+        return
+
+    p = run(
+        ["npm", "install", "--package-lock-only", "--ignore-scripts",
+         "--no-audit", "--no-fund"],
+        cwd=HERE, timeout=300,
+    )
+    after = lock.read_bytes() if lock.exists() else None
+    if p.returncode != 0:
+        rep.fail("V6", "could not regenerate package-lock.json", tail(p))
+    elif after is None:
+        rep.fail("V6", "`npm install --package-lock-only` produced no lock file", tail(p))
+    elif before is None:
+        rep.fail(
+            "V6",
+            "package-lock.json did not exist -- it has just been generated",
+            "`git add package-lock.json`, commit, and re-run.",
+        )
+    elif after != before:
+        rep.fail(
+            "V6",
+            "package-lock.json was stale -- it has just been regenerated",
+            "It now matches package.json. Commit it, or the tag captures a lock"
+            "\nfile that disagrees with the version being published.",
+        )
+    else:
+        rep.ok("V6", f"package-lock.json is what npm generates ({version})")
 
 
 def check_deps(rep, offline):
@@ -636,6 +702,7 @@ def main():
 
     check_repo(rep, args.allow_dirty)
     check_version(rep, version)
+    check_lockfile(rep, version, args.offline)
     check_deps(rep, args.offline)
 
     built = True
