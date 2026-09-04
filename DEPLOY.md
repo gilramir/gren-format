@@ -25,8 +25,8 @@ package page after the first publish, and switch the three links to absolute
 ## Version
 
 `package.json`'s `"version"` is the single source of truth, and
-`npm version <patch|minor|major>` is the only thing that bumps it. Nothing else
-needs editing:
+`npm version <patch|minor|major>` is the only thing that bumps it. Almost
+nothing else needs editing:
 
 - `build.sh` generates `src/Version.gren` from `package.json` before every build
 - `Main.gren` passes `Version.version` to the CLI, so `gren-format --version`
@@ -36,8 +36,16 @@ needs editing:
   stale one cannot reach the tag. (It never reaches the tarball: npm always
   excludes it, and `files` is `["app"]` anyway.)
 
-So a forgotten bump is not possible — there is no second string to forget. Do
-**not** hand-edit `src/Version.gren`; the next build overwrites it. It is
+The exception is **`flake.nix`**, whose `version` attribute is a second string,
+hand-edited, that `npm version` does not reach — 1.3.0 shipped with it still
+saying 1.2.0. It is metadata only: nix names the derivation and its store path
+from it, while the build runs `./build.sh` over `src = ./.;`, so a nix-built
+binary reports the `package.json` version regardless. That is what makes it easy
+to forget — nothing misbehaves, the store path is just labelled with the
+previous release. `check-release.py`'s V7 now compares the two and fails on
+drift, so bump it in the same commit.
+
+Do **not** hand-edit `src/Version.gren`; the next build overwrites it. It is
 committed (not ignored) only so a fresh clone compiles with a plain
 `gren make Main`, and `build.sh` rewrites it only when the version actually
 changed, so an unchanged build doesn't force a recompile.
@@ -119,9 +127,10 @@ Every release *after* the first:
 
 ```bash
 npm version <patch|minor|major> --no-git-tag-version   # bumps package.json only
+V="$(node -p "require('./package.json').version")"
+sed -i "s/version = \"[^\"]*\";/version = \"$V\";/" flake.nix   # the one npm misses
 ./build.sh                        # regenerates src/Version.gren + rebuilds ./app
 ./app --version                   # sanity: matches the new package.json
-V="$(node -p "require('./package.json').version")"
 git commit -am "Version $V"
 git tag -a "$V" -m "$V"           # -a is load-bearing; see below
 npm publish                       # prepublishOnly rebuilds once more (a no-op now)

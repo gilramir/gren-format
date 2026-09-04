@@ -28,6 +28,10 @@ Version coherence -- `package.json` is the single source of truth (DEPLOY.md)
   V6  `package-lock.json` is exactly what npm generates from `package.json`.
       This one *regenerates* it (offline: gren-format has no npm dependencies)
       and fails if the file moved, the same contract R3 has for `Version.gren`
+  V7  `flake.nix`'s `version` attribute states that same version -- the one
+      string `npm version` does not reach. It only names the nix derivation
+      (the build reads `package.json` like everything else), so a stale one is
+      quiet: a store path labelled with the previous release
 
 Dependencies -- what is pinned is what gets compiled in
   D1  no `local:` pin in `gren.json`. Publishing on one would ship a CLI built
@@ -221,6 +225,7 @@ def drop_unreachable_ipv6(host, probe_timeout=2.0):
 # --------------------------------------------------------------------------
 
 VERSION_RE = re.compile(r'^version\s*=\s*"([^"]*)"', re.M)
+FLAKE_VERSION_RE = re.compile(r'^\s*version\s*=\s*"([^"]*)"\s*;', re.M)
 
 
 def read_package_version():
@@ -230,6 +235,15 @@ def read_package_version():
 def read_version_gren():
     m = VERSION_RE.search((HERE / "src" / "Version.gren").read_text())
     return m.group(1) if m else None
+
+
+def read_flake_versions():
+    """Every `version = "..."` attribute in flake.nix, in file order.
+
+    Its own regex rather than VERSION_RE: the attribute is nested inside
+    `mkDerivation`, so it is indented and VERSION_RE is anchored to column 0.
+    """
+    return FLAKE_VERSION_RE.findall((HERE / "flake.nix").read_text())
 
 
 def check_repo(rep, allow_dirty):
@@ -384,6 +398,47 @@ def check_lockfile(rep, version, offline):
         )
     else:
         rep.ok("V6", f"package-lock.json is what npm generates ({version})")
+
+
+def check_flake(rep, version):
+    """V7 -- `flake.nix`'s `version` attribute states the version too.
+
+    The one string `npm version` does not reach. It is metadata only -- nix
+    names the derivation and its store path from it, while the build itself
+    runs `./build.sh` over `src = ./.;`, so a nix-built binary reports the
+    `package.json` version no matter what this says. The failure it causes is
+    therefore quiet: a store path labelled `gren-format-1.2.0` holding 1.3.0,
+    which is exactly what shipped in 1.3.0 before this check existed.
+
+    A pure file read, so it runs even under `--offline`.
+    """
+    flake = HERE / "flake.nix"
+    if not flake.exists():
+        rep.warn("V7", "no flake.nix")
+        return
+
+    found = read_flake_versions()
+    if not found:
+        rep.fail(
+            "V7",
+            "no `version = \"...\";` attribute found in flake.nix",
+            "If the attribute moved or was renamed, teach FLAKE_VERSION_RE\n"
+            "about it -- a check that silently matches nothing is worse than none.",
+        )
+    elif len(found) > 1:
+        rep.fail(
+            "V7",
+            f"flake.nix has {len(found)} version attributes: {', '.join(found)}",
+            "This check knows how to compare one. Narrow the regex, or bump\nthem together and relax it deliberately.",
+        )
+    elif found[0] != version:
+        rep.fail(
+            "V7",
+            f"flake.nix says {found[0]!r}, package.json says {version!r}",
+            "`npm version` does not touch flake.nix -- edit it by hand and commit.",
+        )
+    else:
+        rep.ok("V7", f"flake.nix agrees ({found[0]})")
 
 
 def check_deps(rep, offline):
@@ -767,6 +822,7 @@ def main():
     check_repo(rep, args.allow_dirty)
     check_version(rep, version)
     check_lockfile(rep, version, args.offline)
+    check_flake(rep, version)
     check_deps(rep, args.offline)
 
     built = True
