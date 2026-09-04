@@ -10,6 +10,11 @@ no-argument run (which keeps the raw source) rewrote the very same file. Every
 CRLF gate in the tree ran the no-argument mode, so nothing was watching this
 one.
 
+The `--recurse` cases live here because a directory argument is the only thing
+in the CLI that has a subtree at all. Both halves of the flag are pinned: what
+it reaches, and what it must still refuse to enter -- a dotted directory,
+`node_modules` and `gren_packages` hold source nobody asked to have reformatted.
+
 @docs positionalSuite
 -}
 
@@ -101,6 +106,60 @@ positionalSuite perms =
                                 ]
                                 {}
                         )
+            , U.test "a directory argument formats the files directly in it and stops there" <| \s ->
+                provisionTree perms s.dir
+                    |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Nothing } [ Path.toPosixString s.dir ])
+                    |> Task.andThen (\r -> readTree perms s.dir |> Task.map (\t -> { r = r, t = t }))
+                    |> Task.map
+                        (\res ->
+                            Expect.all
+                                [ \_ -> Expect.equal 0 res.r.exitCode
+                                , \_ -> Support.expectContains "1 files reformatted" res.r.stdout
+                                , \_ -> Support.expectContains "\n\n\n" res.t.top
+                                , \_ -> Expect.equal dirtyHello res.t.nested
+                                ]
+                                {}
+                        )
+            , U.test "--recurse reaches a file in a subdirectory" <| \s ->
+                provisionTree perms s.dir
+                    |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Nothing } [ "--recurse", Path.toPosixString s.dir ])
+                    |> Task.andThen (\r -> readTree perms s.dir |> Task.map (\t -> { r = r, t = t }))
+                    |> Task.map
+                        (\res ->
+                            Expect.all
+                                [ \_ -> Expect.equal 0 res.r.exitCode
+                                , \_ -> Support.expectContains "2 files reformatted" res.r.stdout
+                                , \_ -> Support.expectContains "\n\n\n" res.t.top
+                                , \_ -> Support.expectContains "\n\n\n" res.t.nested
+                                ]
+                                {}
+                        )
+            , U.test "-r is --recurse" <| \s ->
+                provisionTree perms s.dir
+                    |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Nothing } [ "-r", Path.toPosixString s.dir ])
+                    |> Task.map (\r -> Support.expectContains "2 files reformatted" r.stdout)
+            , U.test "--recurse does not descend into a dotted directory, node_modules or gren_packages" <| \s ->
+                -- Someone else's sources live in those, and a run that rewrote
+                -- every installed dependency would be both a surprise and a
+                -- diff nobody can review.
+                provisionTree perms s.dir
+                    |> Task.andThen (\_ -> provisionSkipped perms s.dir)
+                    |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Nothing } [ "--recurse", Path.toPosixString s.dir ])
+                    |> Task.andThen (\r -> readSkipped perms s.dir |> Task.map (\t -> { r = r, t = t }))
+                    |> Task.map
+                        (\res ->
+                            Expect.all
+                                [ \_ -> Expect.equal 0 res.r.exitCode
+                                , \_ -> Support.expectContains "2 files reformatted" res.r.stdout
+                                , \_ -> Expect.equal dirtyHello res.t.hidden
+                                , \_ -> Expect.equal dirtyHello res.t.nodeModules
+                                , \_ -> Expect.equal dirtyHello res.t.grenPackages
+                                ]
+                                {}
+                        )
+            , U.test "--recurse with no path argument exits nonzero" <| \s ->
+                Support.runApp perms s.appPath { cwd = Nothing } [ "--recurse" ]
+                    |> Task.map (\r -> Expect.notEqual 0 r.exitCode)
             , U.test "summary reports 0 reformatted when file already formatted" <| \s ->
                 let
                     file =
@@ -112,6 +171,54 @@ positionalSuite perms =
                     |> Task.map (\r -> Support.expectContains "0 files reformatted" r.stdout)
             ]
         }
+
+
+{-| A two-level tree under `dir`: `Top.gren` directly in it, `sub/Nested.gren`
+one level down, both unformatted. One `gren-format <dir>` reaches the first and
+not the second; `--recurse` reaches both. -}
+provisionTree : Perms -> Path.Path -> Task.Task String {}
+provisionTree perms dir =
+    Support.makeDir perms (Path.append (Path.fromPosixString "sub") dir)
+        |> Task.andThen (\_ -> Support.writeText perms (Path.append (Path.fromPosixString "Top.gren") dir) dirtyHello)
+        |> Task.andThen (\_ -> Support.writeText perms (Path.append (Path.fromPosixString "sub/Nested.gren") dir) dirtyHello)
+
+
+readTree : Perms -> Path.Path -> Task.Task String { top : String, nested : String }
+readTree perms dir =
+    readBack perms (Path.append (Path.fromPosixString "Top.gren") dir)
+        |> Task.andThen
+            (\top ->
+                readBack perms (Path.append (Path.fromPosixString "sub/Nested.gren") dir)
+                    |> Task.map (\nested -> { top = top, nested = nested })
+            )
+
+
+{-| The three directories a recursive walk must refuse to enter, each holding a
+file that would be rewritten if it did. -}
+provisionSkipped : Perms -> Path.Path -> Task.Task String {}
+provisionSkipped perms dir =
+    Array.foldl
+        (\name task ->
+            task
+                |> Task.andThen (\_ -> Support.makeDir perms (Path.append (Path.fromPosixString name) dir))
+                |> Task.andThen (\_ -> Support.writeText perms (Path.append (Path.fromPosixString (name ++ "/Vendored.gren")) dir) dirtyHello)
+        )
+        (Task.succeed {})
+        [ ".hidden", "node_modules", "gren_packages" ]
+
+
+readSkipped : Perms -> Path.Path -> Task.Task String { hidden : String, nodeModules : String, grenPackages : String }
+readSkipped perms dir =
+    readBack perms (Path.append (Path.fromPosixString ".hidden/Vendored.gren") dir)
+        |> Task.andThen
+            (\hidden ->
+                readBack perms (Path.append (Path.fromPosixString "node_modules/Vendored.gren") dir)
+                    |> Task.andThen
+                        (\nodeModules ->
+                            readBack perms (Path.append (Path.fromPosixString "gren_packages/Vendored.gren") dir)
+                                |> Task.map (\grenPackages -> { hidden = hidden, nodeModules = nodeModules, grenPackages = grenPackages })
+                        )
+            )
 
 
 formattedInPlace : RunResult -> String -> Expect.Expectation

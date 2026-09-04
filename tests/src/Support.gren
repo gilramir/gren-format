@@ -10,6 +10,7 @@ module Support exposing
     , expectNotContains
     , helloFixture
     , locateApp
+    , makeDir
     , makeProject
     , makeScratch
     , readBack
@@ -183,6 +184,15 @@ writeText perms path text =
     FileSystem.writeFile perms.fs (Bytes.fromString text) path
         |> Task.map (\_ -> {})
         |> Task.mapError (\e -> "write " ++ Path.toPosixString path ++ ": " ++ Debug.toString e)
+
+
+{-| Create a directory (and any missing parent), for the tests that provision a
+tree rather than a flat scratch dir. -}
+makeDir : Perms -> Path -> Task String {}
+makeDir perms path =
+    FileSystem.makeDirectory perms.fs { recursive = True } path
+        |> Task.map (\_ -> {})
+        |> Task.mapError (\e -> "mkdir " ++ Path.toPosixString path ++ ": " ++ Debug.toString e)
 
 
 readBack : Perms -> Path -> Task String String

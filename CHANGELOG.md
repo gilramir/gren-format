@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`-r` / `--recurse`** — with a directory path argument, format the Gren
+  sources in its subdirectories as well. Without it a directory argument is
+  read one level deep, as it always has been: `gren-format src/` formats
+  `src/Toml.gren` and never sees `src/Toml/*.gren`. The positional argument's
+  `--help` line now says so, so the default stops being a surprise.
+
+  A recursive walk does not enter a dotted directory, `node_modules` or
+  `gren_packages`. Those hold source somebody else wrote, and `gren-format -r .`
+  in a project root rewriting every installed dependency is neither what anyone
+  means nor a diff anybody can review. `--recurse` with no path argument is an
+  error rather than a no-op — the no-argument run already reaches every source
+  file, because it takes its list from `gren.json` rather than from the tree.
+
+### Changed
+
+- Formatter behaviour, from `gren-format-lib`: an invisible code point now keeps
+  its `\u{...}` escape in a string literal instead of being written out as the
+  raw character, char literals stopped escaping visible non-ASCII, and the hex
+  digits of an escape are uppercase. See that package's changelog.
+
+
 ## [1.2.0] - 2026-08-26
 
 ### Added

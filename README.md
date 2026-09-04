@@ -128,6 +128,18 @@ Format specific files or directories in place:
 gren-format src/Main.gren src/Util.gren
 ```
 
+A directory argument is **not** recursed into: `gren-format src/` formats the
+Gren sources sitting directly in `src/` and nothing below it. Pass `-r` /
+`--recurse` to walk the whole subtree:
+
+```
+gren-format -r src/
+```
+
+A recursive walk skips dotted directories (`.git`, `.gren`), `node_modules` and
+`gren_packages` — those hold other people's source, and rewriting every
+installed dependency is not what anyone means by `gren-format -r .`.
+
 Preview formatted output without writing:
 
 ```

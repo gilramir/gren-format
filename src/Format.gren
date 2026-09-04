@@ -257,32 +257,85 @@ verifyReparse path originalModule pretty1 =
 
 
 {-| Expand a path argument to a list of files to format.
-    If the path is a directory, returns all Gren source files directly in it
-    (non-recursive; symlinks are skipped). A Gren source file has a `.gren`
-    extension and a name starting with a capital ASCII letter.
-    For any other path type (regular file, symlink, …), returns [path].
+    If the path is a directory, returns the Gren source files directly in it --
+    or, with `recurse`, those in it and in every directory below it. Symlinks
+    are skipped. A Gren source file has a `.gren` extension and a name starting
+    with a capital ASCII letter.
+    For any other path type (regular file, symlink, …), returns [path]: a named
+    file is formatted whatever it is called, since naming it is already the
+    intent that the directory filter has to infer.
 -}
-expandPathToFiles : FileSystem.Permission -> Path -> Task Error (Array Path)
-expandPathToFiles fsPermission path =
+expandPathToFiles : FileSystem.Permission -> { recurse : Bool } -> Path -> Task Error (Array Path)
+expandPathToFiles fsPermission options path =
     FileSystem.metadata fsPermission { resolveLink = False } path
         |> Task.mapError (\fsErr -> ShowReadFailure { path = path, error = FileSystem.errorToString fsErr })
         |> Task.andThen
             (\meta ->
                 if meta.entityType == FileSystem.Directory then
-                    FileSystem.listDirectory fsPermission path
-                        |> Task.mapError (\fsErr -> ShowReadFailure { path = path, error = FileSystem.errorToString fsErr })
-                        |> Task.map
-                            (\entries ->
-                                entries
-                                    |> Array.keepIf (\e -> e.entityType == FileSystem.File)
-                                    |> Array.keepIf (\e -> e.path.extension == "gren")
-                                    |> Array.keepIf (\e -> isGrenSourceName e.path.filename)
-                                    |> Array.map (\e -> Path.prepend path e.path)
-                            )
+                    expandDirectory fsPermission options path
 
                 else
                     Task.succeed [ path ]
             )
+
+
+{-| One directory's Gren source files, plus -- under `recurse` -- those of every
+directory below it, depth-first in listing order.
+
+The recursion is the whole of `-r`; without it this is one `listDirectory` and
+the same filter the flag-less form has always applied. -}
+expandDirectory : FileSystem.Permission -> { recurse : Bool } -> Path -> Task Error (Array Path)
+expandDirectory fsPermission options dir =
+    FileSystem.listDirectory fsPermission dir
+        |> Task.mapError (\fsErr -> ShowReadFailure { path = dir, error = FileSystem.errorToString fsErr })
+        |> Task.andThen
+            (\entries ->
+                let
+                    files =
+                        entries
+                            |> Array.keepIf (\e -> e.entityType == FileSystem.File)
+                            |> Array.keepIf (\e -> e.path.extension == "gren")
+                            |> Array.keepIf (\e -> isGrenSourceName e.path.filename)
+                            |> Array.map (\e -> Path.prepend dir e.path)
+
+                    subdirectories =
+                        if options.recurse then
+                            entries
+                                |> Array.keepIf (\e -> e.entityType == FileSystem.Directory)
+                                |> Array.keepIf (\e -> isWalkableDirectory e.path.filename)
+                                |> Array.map (\e -> Path.prepend dir e.path)
+
+                        else
+                            []
+                in
+                Array.foldl
+                    (\subdirectory task ->
+                        task
+                            |> Task.andThen
+                                (\found ->
+                                    expandDirectory fsPermission options subdirectory
+                                        |> Task.map (\deeper -> found ++ deeper)
+                                )
+                    )
+                    (Task.succeed files)
+                    subdirectories
+            )
+
+
+{-| Does a recursive walk descend into this directory?
+
+Not into a dotted one -- `.git`, `.gren`, `.devbox` hold version control and
+build state, never source anybody meant to format -- and not into
+`node_modules` or `gren_packages`, which hold *other people's* Gren source.
+Without that last pair, `gren-format -r .` in a project root would rewrite every
+dependency the project has installed, which is both a surprise and a diff nobody
+can review. The no-argument project run has never had this problem: it takes its
+file list from `gren.json`'s source directories rather than from the tree. -}
+isWalkableDirectory : String -> Bool
+isWalkableDirectory name =
+    not (String.startsWith "." name)
+        && name /= "node_modules"
+        && name /= "gren_packages"
 
 
 isGrenSourceName : String -> Bool
@@ -512,10 +565,10 @@ formatFile { fsPermission, removeUnusedImports } path =
 
 
 {-| Format every file reached by the given path arguments — a directory expands
-to its direct Gren source files (`expandPathToFiles`), any other path is that
-file — overwriting each in place. Returns how many were rewritten vs. already
-formatted. -}
-formatPaths : { fsPermission : FileSystem.Permission, removeUnusedImports : Bool, progress : Progress } -> Array Path -> Task Error { rewritten : Int, skipped : Int }
+to its Gren source files (`expandPathToFiles`, one level deep unless `recurse`),
+any other path is that file — overwriting each in place. Returns how many were
+rewritten vs. already formatted. -}
+formatPaths : { fsPermission : FileSystem.Permission, removeUnusedImports : Bool, recurse : Bool, progress : Progress } -> Array Path -> Task Error { rewritten : Int, skipped : Int }
 formatPaths config paths =
     let
         fileConfig =
@@ -542,7 +595,7 @@ formatPaths config paths =
             outerTask
                 |> Task.andThen
                     (\counts ->
-                        expandPathToFiles config.fsPermission path
+                        expandPathToFiles config.fsPermission { recurse = config.recurse } path
                             |> Task.andThen (\filePaths -> Array.foldl formatOne (Task.succeed counts) filePaths)
                     )
     in
@@ -679,12 +732,14 @@ diffFile { fsPermission, removeUnusedImports } name path =
 
 
 {-| `--diff` for path arguments: the same file set `formatPaths` would rewrite --
-a directory expands to its direct Gren source files, any other path is that
-file -- but print each one's unified diff instead of overwriting it. -}
+a directory expands to its Gren source files, one level deep unless `recurse`,
+and any other path is that file -- but print each one's unified diff instead of
+overwriting it. -}
 diffPaths :
     { stdout : Stream.Writable Bytes
     , fsPermission : FileSystem.Permission
     , removeUnusedImports : Bool
+    , recurse : Bool
     , progress : Progress
     }
     -> Array Path
@@ -712,7 +767,7 @@ diffPaths config paths =
             outerTask
                 |> Task.andThen
                     (\_ ->
-                        expandPathToFiles config.fsPermission path
+                        expandPathToFiles config.fsPermission { recurse = config.recurse } path
                             |> Task.andThen (\filePaths -> Array.foldl diffOne (Task.succeed {}) filePaths)
                     )
     in

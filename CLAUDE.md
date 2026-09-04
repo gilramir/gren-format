@@ -22,8 +22,12 @@ node app --show MyFile.gren      # one file to stdout, with all checks
 
 `onCommand` in `src/Main.gren` dispatches in this order:
 
-1. **Positional paths** → format those files/directories in place. Combining
-   paths with a single-file debug flag is an error.
+1. **Positional paths** → format those files/directories in place. A directory
+   is read one level deep unless `-r` / `--recurse` is given, which walks the
+   subtree while skipping dotted directories, `node_modules` and
+   `gren_packages`. `--recurse` with no path argument is an error (the
+   no-argument run takes its files from `gren.json`, not from the tree).
+   Combining paths with a single-file debug flag is an error.
 2. **A single-file debug flag** (`--show`, `--lpt`, `--rt`, `--box`, `--pre-ast`,
    `--pre-context`, `--post-ast`, `--post-context`, `--decisions`,
    `--audit-predicates`, `--show-first`) → run that inspection, write nothing.
@@ -42,7 +46,8 @@ either way (like `gofmt -d`); only a real failure is nonzero. It cannot be
 combined with the single-file debug flags.
 
 `--remove-unused-imports` and `--show-progress` combine with the in-place
-modes and with `--diff`; `--show-progress` prints each file's path with no
+modes and with `--diff` (`--recurse` combines with the path mode and with
+`--diff`); `--show-progress` prints each file's path with no
 newline before the formatter starts on it, then the outcome (`reformatted`,
 `already formatted`, `parse error`, `format error`) on the same line — under
 `--diff` the outcome is `would reformat` and the whole progress line goes to

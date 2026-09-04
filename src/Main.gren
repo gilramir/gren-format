@@ -28,6 +28,7 @@ import Version
 type alias FormatFlags =
     { files : Array Path
     , diff : Bool
+    , recurse : Bool
     , removeUnusedImports : Bool
     , showProgress : Bool
     , show : Maybe Path
@@ -57,13 +58,14 @@ command =
     , arguments =
         AP.zeroOrMoreArgs
             { value = AP.pathParser
-            , help = "Gren source file or directory to pretty-print in place"
+            , help = "Gren source file or directory to pretty-print in place (a directory is non-recursive; see --recurse)"
             }
     , flags =
         AP.initFlags
-            (\diff removeUnusedImports showProgress show showFirst preAst preContext postAst postContext lpt rt box auditPredicates decisions version ->
+            (\diff recurse removeUnusedImports showProgress show showFirst preAst preContext postAst postContext lpt rt box auditPredicates decisions version ->
                 { files = []
                 , diff = diff
+                , recurse = recurse
                 , removeUnusedImports = removeUnusedImports
                 , showProgress = showProgress
                 , show = show
@@ -81,6 +83,7 @@ command =
                 }
             )
             |> AP.toggle (AP.Both { long = "diff", short = "d" }) "Print a unified diff of what formatting would change, without modifying any file"
+            |> AP.toggle (AP.Both { long = "recurse", short = "r" }) "With a directory argument, also format the Gren sources in its subdirectories (skipping dotted directories, node_modules and gren_packages)"
             |> AP.toggle (AP.LongOnly "remove-unused-imports") "Remove unused imports while formatting"
             |> AP.toggle (AP.LongOnly "show-progress") "Print each file as it is formatted, then its outcome on the same line"
             |> AP.flag (AP.LongOnly "show") AP.pathParser "Parse and pretty-print a single file to stdout without modifying it"
@@ -160,6 +163,7 @@ onCommand env context flags =
             { stdout = env.stdout
             , fsPermission = context.fs
             , removeUnusedImports = flags.removeUnusedImports
+            , recurse = flags.recurse
             , progress = progress
             }
     in
@@ -173,6 +177,14 @@ onCommand env context flags =
     else if flags.diff && anyFlagSet then
         Task.fail (Program.ExitMessage "Cannot combine --diff with the single-file inspection flags. Use --help for options.")
 
+    else if flags.recurse && Array.isEmpty flags.files then
+        -- Only a directory argument has a subtree to walk. The no-argument run
+        -- already reaches every source file the project has, because it takes
+        -- its list from `gren.json` rather than from the directory tree, so a
+        -- `--recurse` there is either a misunderstanding or a typo for a path
+        -- that got lost -- both worth saying out loud rather than ignoring.
+        Task.fail (Program.ExitMessage "--recurse applies to a directory path argument. With no arguments, gren-format already formats every source directory listed in gren.json.")
+
     else if not (Array.isEmpty flags.files) then
         if anyFlagSet then
             Task.fail (Program.ExitMessage "Cannot combine file path arguments with flags. Use --help for options.")
@@ -182,7 +194,7 @@ onCommand env context flags =
                 |> Task.mapError (\err -> Program.ExitMessage (reportToString context.useColor (Format.prettifyError err)))
 
         else
-            Format.formatPaths { fsPermission = context.fs, removeUnusedImports = flags.removeUnusedImports, progress = progress } flags.files
+            Format.formatPaths { fsPermission = context.fs, removeUnusedImports = flags.removeUnusedImports, recurse = flags.recurse, progress = progress } flags.files
                 |> Task.mapError (\err -> Program.ExitMessage (reportToString context.useColor (Format.prettifyError err)))
                 |> Task.andThen
                     (\{ rewritten, skipped } ->
