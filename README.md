@@ -140,6 +140,22 @@ A recursive walk skips dotted directories (`.git`, `.gren`), `node_modules` and
 `gren_packages` — those hold other people's source, and rewriting every
 installed dependency is not what anyone means by `gren-format -r .`.
 
+Symbolic links are never followed and never formatted. A recursive walk passes
+over one whether it points at a directory or at a `.gren` file, and naming it on
+the command line does not change that:
+
+```
+$ gren-format Link.gren
+Link.gren: skipped (symbolic link)
+0 files reformatted, 0 files already formatted.
+```
+
+The note goes to stderr and the run still exits 0, so one link caught by a glob
+does not stop the real files beside it. The reason a link cannot be formatted is
+how the write works: `gren-format` renames a temporary file onto the path, which
+would leave a regular file where the link was and the link's target still
+unformatted — a link quietly turned into a copy.
+
 Preview formatted output without writing:
 
 ```

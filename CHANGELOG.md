@@ -15,14 +15,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `src/Toml.gren` and never sees `src/Toml/*.gren`. The positional argument's
   `--help` line now says so, so the default stops being a surprise.
 
-  A recursive walk does not enter a dotted directory, `node_modules` or
-  `gren_packages`. Those hold source somebody else wrote, and `gren-format -r .`
+  A recursive walk does not follow symbolic links, and does not enter a dotted
+  directory, `node_modules` or `gren_packages`. Those hold source somebody else wrote, and `gren-format -r .`
   in a project root rewriting every installed dependency is neither what anyone
   means nor a diff anybody can review. `--recurse` with no path argument is an
   error rather than a no-op — the no-argument run already reaches every source
   file, because it takes its list from `gren.json` rather than from the tree.
 
 ### Fixed
+
+- **A symbolic link named as a path argument is skipped instead of clobbered.**
+  A named link used to be formatted like any other named file, and since the
+  write is a rename onto the path, what that actually did was replace the link
+  with a regular file and leave the link's target unformatted — turning a link
+  into a copy without saying so. A named link to a *directory* was worse: the
+  walk skips links, so there was nothing to expand, and reading it as a file
+  failed with a bare `EISDIR: illegal operation on a directory`, an error about
+  the syscall that named neither the link nor the rule.
+
+  Both are now passed over with one line on stderr — `Link.gren: skipped
+  (symbolic link)` — and the run continues and exits 0, so a link swept up by a
+  glob does not fail the real files beside it.
 
 - **The summary line counts in the singular when the count is 1** — `1 file
   reformatted, 1 file already formatted.` rather than `1 files … 1 files …`.

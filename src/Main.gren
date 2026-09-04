@@ -83,7 +83,7 @@ command =
                 }
             )
             |> AP.toggle (AP.Both { long = "diff", short = "d" }) "Print a unified diff of what formatting would change, without modifying any file"
-            |> AP.toggle (AP.Both { long = "recurse", short = "r" }) "With a directory argument, also format the Gren sources in its subdirectories (skipping dotted directories, node_modules and gren_packages)"
+            |> AP.toggle (AP.Both { long = "recurse", short = "r" }) "With a directory argument, also format the Gren sources in its subdirectories (skipping symlinks, dotted directories, node_modules and gren_packages)"
             |> AP.toggle (AP.LongOnly "remove-unused-imports") "Remove unused imports while formatting"
             |> AP.toggle (AP.LongOnly "show-progress") "Print each file as it is formatted, then its outcome on the same line"
             |> AP.flag (AP.LongOnly "show") AP.pathParser "Parse and pretty-print a single file to stdout without modifying it"
@@ -161,6 +161,7 @@ onCommand env context flags =
 
         diffConfig =
             { stdout = env.stdout
+            , notes = env.stderr
             , fsPermission = context.fs
             , removeUnusedImports = flags.removeUnusedImports
             , recurse = flags.recurse
@@ -194,7 +195,7 @@ onCommand env context flags =
                 |> Task.mapError (\err -> Program.ExitMessage (reportToString context.useColor (Format.prettifyError err)))
 
         else
-            Format.formatPaths { fsPermission = context.fs, removeUnusedImports = flags.removeUnusedImports, recurse = flags.recurse, progress = progress } flags.files
+            Format.formatPaths { fsPermission = context.fs, notes = env.stderr, removeUnusedImports = flags.removeUnusedImports, recurse = flags.recurse, progress = progress } flags.files
                 |> Task.mapError (\err -> Program.ExitMessage (reportToString context.useColor (Format.prettifyError err)))
                 |> Task.andThen
                     (\{ rewritten, skipped } ->

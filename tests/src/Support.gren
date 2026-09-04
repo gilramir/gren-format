@@ -13,6 +13,7 @@ module Support exposing
     , makeDir
     , makeProject
     , makeScratch
+    , makeSymlink
     , readBack
     , removeScratch
     , runApp
@@ -184,6 +185,19 @@ writeText perms path text =
     FileSystem.writeFile perms.fs (Bytes.fromString text) path
         |> Task.map (\_ -> {})
         |> Task.mapError (\e -> "write " ++ Path.toPosixString path ++ ": " ++ Debug.toString e)
+
+
+{-| Create a symbolic link at `link` pointing at `target` (as written, so a
+relative target is resolved against the link's own directory).
+
+Shelled out to `ln -s` because `gren-lang/node`'s `FileSystem` can *read* a
+symlink -- `metadata { resolveLink = False }` and `listDirectory` both report
+the `Symlink` entity type -- but offers no way to create one. -}
+makeSymlink : Perms -> { target : String, link : Path } -> Task String {}
+makeSymlink perms { target, link } =
+    ChildProcess.run perms.childProcess "ln" [ "-s", target, Path.toPosixString link ] ChildProcess.defaultRunOptions
+        |> Task.map (\_ -> {})
+        |> Task.mapError (\e -> "ln -s " ++ target ++ " " ++ Path.toPosixString link ++ ": " ++ Debug.toString e)
 
 
 {-| Create a directory (and any missing parent), for the tests that provision a

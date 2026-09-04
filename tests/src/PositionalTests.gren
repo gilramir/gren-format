@@ -15,6 +15,11 @@ in the CLI that has a subtree at all. Both halves of the flag are pinned: what
 it reaches, and what it must still refuse to enter -- a dotted directory,
 `node_modules` and `gren_packages` hold source nobody asked to have reformatted.
 
+The symlink cases are here for the same reason. A link is never formatted --
+`atomicWrite` renames onto the path, so formatting one would replace the link
+with a regular file -- and naming it explicitly does not change that; all a
+name buys is a line on stderr saying it was passed over.
+
 @docs positionalSuite
 -}
 
@@ -157,6 +162,104 @@ positionalSuite perms =
                                 ]
                                 {}
                         )
+            , U.test "--recurse does not follow a symlink to a directory" <| \s ->
+                -- `listDirectory` reports a symlink as `Symlink`, not as the
+                -- `File`/`Directory` the walk keeps, so this holds by
+                -- construction -- but nothing said so, and the entity type is
+                -- the kind of detail a dependency can change under us.
+                provisionLinkedTree perms s.dir
+                    |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Nothing } [ "--recurse", Path.toPosixString (Path.append (Path.fromPosixString "walked") s.dir) ])
+                    |> Task.andThen (\r -> readLinkedTree perms s.dir |> Task.map (\t -> { r = r, t = t }))
+                    |> Task.map
+                        (\res ->
+                            Expect.all
+                                [ \_ -> Expect.equal 0 res.r.exitCode
+                                , \_ -> Support.expectContains "1 file reformatted" res.r.stdout
+                                , \_ -> Expect.equal dirtyHello res.t.outside
+                                ]
+                                {}
+                        )
+            , U.test "a symlink to a directory as the path argument is skipped, and said out loud" <| \s ->
+                -- Skipped rather than refused: the run still succeeds, because
+                -- one link swept up by a glob should not fail everything else
+                -- on the line. But it is not silent -- the run was asked for
+                -- this path by name, and doing nothing quietly reads exactly
+                -- like doing it. Before there was a note, this same case failed
+                -- with a bare `EISDIR: illegal operation on a directory`, an
+                -- error about the syscall that named neither the link nor the
+                -- rule.
+                provisionLinkedTree perms s.dir
+                    |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Nothing } [ Path.toPosixString (Path.append (Path.fromPosixString "walked/Link") s.dir) ])
+                    |> Task.andThen (\r -> readLinkedTree perms s.dir |> Task.map (\t -> { r = r, t = t }))
+                    |> Task.map
+                        (\res ->
+                            Expect.all
+                                [ \_ -> Expect.equal 0 res.r.exitCode
+                                , \_ -> Support.expectContains "skipped (symbolic link)" res.r.stderr
+                                , \_ -> Support.expectNotContains "EISDIR" res.r.stderr
+                                , \_ -> Expect.equal dirtyHello res.t.outside
+                                ]
+                                {}
+                        )
+            , U.test "a symlink to a file as the path argument is skipped, leaving both the link and its target alone" <| \s ->
+                -- The link has to survive as a link. `atomicWrite` renames onto
+                -- the path, so formatting a named link would leave a regular
+                -- file where the link was and the target still unformatted --
+                -- silently turning a link into a copy. Reading back through the
+                -- link is what catches that: it still resolves, and what it
+                -- reads is what the target holds.
+                let
+                    target =
+                        Path.append (Path.fromPosixString "Target.gren") s.dir
+
+                    link =
+                        Path.append (Path.fromPosixString "Link.gren") s.dir
+                in
+                Support.writeText perms target dirtyHello
+                    |> Task.andThen (\_ -> Support.makeSymlink perms { target = "Target.gren", link = link })
+                    |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Nothing } [ Path.toPosixString link ])
+                    |> Task.andThen
+                        (\r ->
+                            readBack perms link
+                                |> Task.andThen (\viaLink -> readBack perms target |> Task.map (\t -> { r = r, viaLink = viaLink, target = t }))
+                        )
+                    |> Task.map
+                        (\res ->
+                            Expect.all
+                                [ \_ -> Expect.equal 0 res.r.exitCode
+                                , \_ -> Support.expectContains "skipped (symbolic link)" res.r.stderr
+                                , \_ -> Expect.equal dirtyHello res.viaLink
+                                , \_ -> Expect.equal dirtyHello res.target
+                                ]
+                                {}
+                        )
+            , U.test "a skipped symlink does not stop the real files on the same command line" <| \s ->
+                -- Why the note is a note and not an error: a glob that happens
+                -- to catch one link still formats everything else on the line.
+                let
+                    target =
+                        Path.append (Path.fromPosixString "Target.gren") s.dir
+
+                    link =
+                        Path.append (Path.fromPosixString "Link.gren") s.dir
+
+                    real =
+                        Path.append (Path.fromPosixString "Real.gren") s.dir
+                in
+                Support.writeText perms target dirtyHello
+                    |> Task.andThen (\_ -> Support.writeText perms real dirtyHello)
+                    |> Task.andThen (\_ -> Support.makeSymlink perms { target = "Target.gren", link = link })
+                    |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Nothing } [ Path.toPosixString link, Path.toPosixString real ])
+                    |> Task.andThen (\r -> readBack perms real |> Task.map (\after -> { r = r, after = after }))
+                    |> Task.map
+                        (\res ->
+                            Expect.all
+                                [ \_ -> Expect.equal 0 res.r.exitCode
+                                , \_ -> Support.expectContains "1 file reformatted" res.r.stdout
+                                , \_ -> Support.expectContains "\n\n\n" res.after
+                                ]
+                                {}
+                        )
             , U.test "--recurse with no path argument exits nonzero" <| \s ->
                 Support.runApp perms s.appPath { cwd = Nothing } [ "--recurse" ]
                     |> Task.map (\r -> Expect.notEqual 0 r.exitCode)
@@ -200,6 +303,28 @@ readTree perms dir =
             (\top ->
                 readBack perms (Path.append (Path.fromPosixString "sub/Nested.gren") dir)
                     |> Task.map (\nested -> { top = top, nested = nested })
+            )
+
+
+{-| A walked directory holding one real file and one symlink to a directory
+that sits *outside* the walk. `Outside.gren` is reachable only through the
+link, so it is rewritten if and only if the walk followed it. -}
+provisionLinkedTree : Perms -> Path.Path -> Task.Task String {}
+provisionLinkedTree perms dir =
+    Support.makeDir perms (Path.append (Path.fromPosixString "walked") dir)
+        |> Task.andThen (\_ -> Support.makeDir perms (Path.append (Path.fromPosixString "outside") dir))
+        |> Task.andThen (\_ -> Support.writeText perms (Path.append (Path.fromPosixString "walked/Top.gren") dir) dirtyHello)
+        |> Task.andThen (\_ -> Support.writeText perms (Path.append (Path.fromPosixString "outside/Outside.gren") dir) dirtyHello)
+        |> Task.andThen (\_ -> Support.makeSymlink perms { target = "../outside", link = Path.append (Path.fromPosixString "walked/Link") dir })
+
+
+readLinkedTree : Perms -> Path.Path -> Task.Task String { top : String, outside : String }
+readLinkedTree perms dir =
+    readBack perms (Path.append (Path.fromPosixString "walked/Top.gren") dir)
+        |> Task.andThen
+            (\top ->
+                readBack perms (Path.append (Path.fromPosixString "outside/Outside.gren") dir)
+                    |> Task.map (\outside -> { top = top, outside = outside })
             )
 
 

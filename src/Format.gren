@@ -257,27 +257,74 @@ verifyReparse path originalModule pretty1 =
             )
 
 
-{-| Expand a path argument to a list of files to format.
+{-| What one path argument turned into: the files to format, and the symbolic
+links passed over on the way.
+
+The links are carried out rather than reported here because expanding a path is
+a question, not an announcement -- the two callers already own an output stream
+and print in their own voice. -}
+type alias Expansion =
+    { files : Array Path
+    , skippedLinks : Array Path
+    }
+
+
+{-| Expand a path argument to the files to format.
     If the path is a directory, returns the Gren source files directly in it --
-    or, with `recurse`, those in it and in every directory below it. Symlinks
-    are skipped. A Gren source file has a `.gren` extension and a name starting
-    with a capital ASCII letter.
-    For any other path type (regular file, symlink, …), returns [path]: a named
-    file is formatted whatever it is called, since naming it is already the
-    intent that the directory filter has to infer.
+    or, with `recurse`, those in it and in every directory below it. A Gren
+    source file has a `.gren` extension and a name starting with a capital ASCII
+    letter.
+    A regular file returns itself: a named file is formatted whatever it is
+    called, since naming it is already the intent that the directory filter has
+    to infer.
+    A symlink returns nothing, and is reported as skipped -- see
+    `skippedLinkNote`.
 -}
-expandPathToFiles : FileSystem.Permission -> { recurse : Bool } -> Path -> Task Error (Array Path)
+expandPathToFiles : FileSystem.Permission -> { recurse : Bool } -> Path -> Task Error Expansion
 expandPathToFiles fsPermission options path =
     FileSystem.metadata fsPermission { resolveLink = False } path
         |> Task.mapError (\fsErr -> ShowReadFailure { path = path, error = FileSystem.errorToString fsErr })
         |> Task.andThen
             (\meta ->
-                if meta.entityType == FileSystem.Directory then
-                    expandDirectory fsPermission options path
+                when meta.entityType is
+                    FileSystem.Directory ->
+                        expandDirectory fsPermission options path
+                            |> Task.map (\files -> { files = files, skippedLinks = [] })
 
-                else
-                    Task.succeed [ path ]
+                    FileSystem.Symlink ->
+                        Task.succeed { files = [], skippedLinks = [ path ] }
+
+                    _ ->
+                        Task.succeed { files = [ path ], skippedLinks = [] }
             )
+
+
+{-| Why a named symlink is skipped rather than formatted.
+
+There is no way to write one. `atomicWrite` renames the formatted text onto the
+path, which replaces the link with a regular file and leaves the target holding
+the text it had -- turning a link into a copy behind the author's back. Writing
+*through* the link instead would silently reformat a file somewhere else in the
+tree, which a path argument is not permission to do either. So a link is passed
+over, whether it points at a file, at a directory, or at nothing.
+
+It is said out loud, on stderr, because the run was explicitly asked to format
+this path: doing nothing quietly reads exactly like doing it. The run itself
+still succeeds -- a `gren-format *.gren` that happens to sweep up one link
+should not fail on it. -}
+skippedLinkNote : Path -> String
+skippedLinkNote path =
+    Path.toPosixString path ++ ": skipped (symbolic link)"
+
+
+{-| Say what was passed over, then hand on the files that were not. -}
+noteSkippedLinks : Stream.Writable Bytes -> Expansion -> Task Error (Array Path)
+noteSkippedLinks notes expansion =
+    Array.foldl
+        (\link task -> Task.andThen (\_ -> Stream.Log.line notes (skippedLinkNote link)) task)
+        (Task.succeed {})
+        expansion.skippedLinks
+        |> Task.map (\_ -> expansion.files)
 
 
 {-| One directory's Gren source files, plus -- under `recurse` -- those of every
@@ -591,7 +638,7 @@ fileCount n =
 to its Gren source files (`expandPathToFiles`, one level deep unless `recurse`),
 any other path is that file — overwriting each in place. Returns how many were
 rewritten vs. already formatted. -}
-formatPaths : { fsPermission : FileSystem.Permission, removeUnusedImports : Bool, recurse : Bool, progress : Progress } -> Array Path -> Task Error { rewritten : Int, skipped : Int }
+formatPaths : { fsPermission : FileSystem.Permission, notes : Stream.Writable Bytes, removeUnusedImports : Bool, recurse : Bool, progress : Progress } -> Array Path -> Task Error { rewritten : Int, skipped : Int }
 formatPaths config paths =
     let
         fileConfig =
@@ -619,6 +666,7 @@ formatPaths config paths =
                 |> Task.andThen
                     (\counts ->
                         expandPathToFiles config.fsPermission { recurse = config.recurse } path
+                            |> Task.andThen (noteSkippedLinks config.notes)
                             |> Task.andThen (\filePaths -> Array.foldl formatOne (Task.succeed counts) filePaths)
                     )
     in
@@ -760,6 +808,7 @@ and any other path is that file -- but print each one's unified diff instead of
 overwriting it. -}
 diffPaths :
     { stdout : Stream.Writable Bytes
+    , notes : Stream.Writable Bytes
     , fsPermission : FileSystem.Permission
     , removeUnusedImports : Bool
     , recurse : Bool
@@ -791,6 +840,7 @@ diffPaths config paths =
                 |> Task.andThen
                     (\_ ->
                         expandPathToFiles config.fsPermission { recurse = config.recurse } path
+                            |> Task.andThen (noteSkippedLinks config.notes)
                             |> Task.andThen (\filePaths -> Array.foldl diffOne (Task.succeed {}) filePaths)
                     )
     in

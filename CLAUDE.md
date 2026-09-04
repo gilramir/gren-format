@@ -24,10 +24,14 @@ node app --show MyFile.gren      # one file to stdout, with all checks
 
 1. **Positional paths** → format those files/directories in place. A directory
    is read one level deep unless `-r` / `--recurse` is given, which walks the
-   subtree while skipping dotted directories, `node_modules` and
-   `gren_packages`. `--recurse` with no path argument is an error (the
+   subtree while skipping symbolic links, dotted directories, `node_modules`
+   and `gren_packages`. `--recurse` with no path argument is an error (the
    no-argument run takes its files from `gren.json`, not from the tree).
-   Combining paths with a single-file debug flag is an error.
+   Combining paths with a single-file debug flag is an error. A symlink is
+   never formatted, named or walked into: `expandPathToFiles` returns it in
+   `Expansion.skippedLinks`, which the caller reports on stderr
+   (`skippedLinkNote`) before formatting the rest. Formatting one would
+   replace it -- `atomicWrite` renames onto the path.
 2. **A single-file debug flag** (`--show`, `--lpt`, `--rt`, `--box`, `--pre-ast`,
    `--pre-context`, `--post-ast`, `--post-context`, `--decisions`,
    `--audit-predicates`, `--show-first`) → run that inspection, write nothing.
