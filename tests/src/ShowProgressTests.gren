@@ -39,7 +39,7 @@ showProgressSuite perms =
                             Expect.all
                                 [ \_ -> Expect.equal 0 r.exitCode
                                 , \_ -> Support.expectContains "src/Hello.gren ... reformatted" r.stdout
-                                , \_ -> Support.expectContains "1 files reformatted" r.stdout
+                                , \_ -> Support.expectContains "1 file reformatted" r.stdout
                                 ]
                                 {}
                         )

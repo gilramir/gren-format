@@ -22,6 +22,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   error rather than a no-op — the no-argument run already reaches every source
   file, because it takes its list from `gren.json` rather than from the tree.
 
+### Fixed
+
+- **The summary line counts in the singular when the count is 1** — `1 file
+  reformatted, 1 file already formatted.` rather than `1 files … 1 files …`.
+  Each half pluralizes on its own number, and `0 files` stays plural, which is
+  what a clean run prints.
+
 ### Changed
 
 - Formatter behaviour, from `gren-format-lib`: an invisible code point now keeps

@@ -78,7 +78,7 @@ positionalSuite perms =
                 in
                 Support.writeText perms file dirtyHello
                     |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Nothing } [ Path.toPosixString file ])
-                    |> Task.map (\r -> Support.expectContains "1 files reformatted" r.stdout)
+                    |> Task.map (\r -> Support.expectContains "1 file reformatted" r.stdout)
             , U.test "a CRLF file is rewritten with LF, even when nothing else about it changes" <| \s ->
                 let
                     file =
@@ -101,7 +101,7 @@ positionalSuite perms =
                         (\res ->
                             Expect.all
                                 [ \_ -> Expect.equal 0 res.r.exitCode
-                                , \_ -> Support.expectContains "1 files reformatted" res.r.stdout
+                                , \_ -> Support.expectContains "1 file reformatted" res.r.stdout
                                 , \_ -> Expect.equal False (String.contains "\r" res.after)
                                 ]
                                 {}
@@ -114,7 +114,7 @@ positionalSuite perms =
                         (\res ->
                             Expect.all
                                 [ \_ -> Expect.equal 0 res.r.exitCode
-                                , \_ -> Support.expectContains "1 files reformatted" res.r.stdout
+                                , \_ -> Support.expectContains "1 file reformatted" res.r.stdout
                                 , \_ -> Support.expectContains "\n\n\n" res.t.top
                                 , \_ -> Expect.equal dirtyHello res.t.nested
                                 ]
@@ -160,7 +160,10 @@ positionalSuite perms =
             , U.test "--recurse with no path argument exits nonzero" <| \s ->
                 Support.runApp perms s.appPath { cwd = Nothing } [ "--recurse" ]
                     |> Task.map (\r -> Expect.notEqual 0 r.exitCode)
-            , U.test "summary reports 0 reformatted when file already formatted" <| \s ->
+            , U.test "summary reports 0 reformatted when file already formatted, and counts the one file in the singular" <| \s ->
+                -- Both halves of the sentence pluralize on their own count, so
+                -- the skipped half needs its own singular case: this run is the
+                -- one that says "0 files ... 1 file".
                 let
                     file =
                         Path.append (Path.fromPosixString "Hello.gren") s.dir
@@ -168,7 +171,14 @@ positionalSuite perms =
                 Support.writeText perms file dirtyHello
                     |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Nothing } [ Path.toPosixString file ])
                     |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Nothing } [ Path.toPosixString file ])
-                    |> Task.map (\r -> Support.expectContains "0 files reformatted" r.stdout)
+                    |> Task.map
+                        (\r ->
+                            Expect.all
+                                [ \_ -> Support.expectContains "0 files reformatted" r.stdout
+                                , \_ -> Support.expectContains "1 file already formatted" r.stdout
+                                ]
+                                {}
+                        )
             ]
         }
 

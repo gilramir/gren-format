@@ -199,7 +199,7 @@ onCommand env context flags =
                 |> Task.andThen
                     (\{ rewritten, skipped } ->
                         Stream.Log.line env.stdout
-                            (String.fromInt rewritten ++ " files reformatted, " ++ String.fromInt skipped ++ " files already formatted.")
+                            (Format.formattedCountSummary { rewritten = rewritten, skipped = skipped })
                     )
                 |> Task.map (\_ -> {})
 

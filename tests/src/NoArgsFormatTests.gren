@@ -56,7 +56,7 @@ noArgsFormatSuite perms =
             , U.test "summary reports reformatted count" <| \s ->
                 Support.makeProject perms s.dir dirtyHello
                     |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Just (Path.toPosixString s.dir) } [])
-                    |> Task.map (\r -> Support.expectContains "1 files reformatted" r.stdout)
+                    |> Task.map (\r -> Support.expectContains "1 file reformatted" r.stdout)
             , U.test "summary reports 0 reformatted when files already formatted" <| \s ->
                 Support.makeProject perms s.dir dirtyHello
                     |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Just (Path.toPosixString s.dir) } [])

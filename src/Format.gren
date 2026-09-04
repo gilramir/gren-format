@@ -10,6 +10,7 @@ module Format exposing
     , expandPathToFiles
     , formatFile
     , formatPaths
+    , formattedCountSummary
     , lptFile
     , postAstFile
     , postContextFile
@@ -525,13 +526,12 @@ run { fsPermission, pathToString, projectPath, outline, removeUnusedImports, pro
                                 else
                                     ""
 
-                            rewrittenCount =
-                                String.fromInt (Array.length rewritten)
-
-                            skippedCount =
-                                String.fromInt skipped
                         in
-                        paths ++ rewrittenCount ++ " files reformatted, " ++ skippedCount ++ " files already formatted."
+                        paths
+                            ++ formattedCountSummary
+                                { rewritten = Array.length rewritten
+                                , skipped = skipped
+                                }
                 in
                 if files == [] then
                     Task.fail NothingToFormat
@@ -562,6 +562,29 @@ formatFile { fsPermission, removeUnusedImports } path =
                             atomicWrite fsPermission path pretty
                                 |> Task.map (\_ -> True)
             )
+
+
+{-| The line both in-place modes end with: `2 files reformatted, 1 file already
+formatted.` Shared so the no-argument project run and the path-argument run
+cannot word it differently -- they are the same sentence about the same two
+numbers, and they used to build it separately.
+
+Only a count of exactly 1 is singular; `0 files` is right in English and is what
+a clean run prints. -}
+formattedCountSummary : { rewritten : Int, skipped : Int } -> String
+formattedCountSummary { rewritten, skipped } =
+    fileCount rewritten ++ " reformatted, " ++ fileCount skipped ++ " already formatted."
+
+
+fileCount : Int -> String
+fileCount n =
+    String.fromInt n
+        ++ (if n == 1 then
+                " file"
+
+            else
+                " files"
+           )
 
 
 {-| Format every file reached by the given path arguments — a directory expands
