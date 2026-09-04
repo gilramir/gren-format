@@ -572,7 +572,6 @@ run { fsPermission, pathToString, projectPath, outline, removeUnusedImports, pro
 
                                 else
                                     ""
-
                         in
                         paths
                             ++ formattedCountSummary
