@@ -27,6 +27,7 @@
         buildPhase = ''
           runHook preBuild
 
+          patchShebangs build.sh
           ./build.sh
 
           runHook postBuild
