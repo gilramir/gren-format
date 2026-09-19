@@ -272,7 +272,7 @@ type alias Expansion =
 {-| Expand a path argument to the files to format.
     If the path is a directory, returns the Gren source files directly in it --
     or, with `recurse`, those in it and in every directory below it. A Gren
-    source file has a `.gren` extension and a name starting with a capital ASCII
+    source file has a `.geng` extension and a name starting with a capital ASCII
     letter.
     A regular file returns itself: a named file is formatted whatever it is
     called, since naming it is already the intent that the directory filter has
@@ -342,7 +342,7 @@ expandDirectory fsPermission options dir =
                     files =
                         entries
                             |> Array.keepIf (\e -> e.entityType == FileSystem.File)
-                            |> Array.keepIf (\e -> e.path.extension == "gren")
+                            |> Array.keepIf (\e -> e.path.extension == "geng")
                             |> Array.keepIf (\e -> isGrenSourceName e.path.filename)
                             |> Array.map (\e -> Path.prepend dir e.path)
 
@@ -378,7 +378,7 @@ build state, never source anybody meant to format -- and not into
 Without that last pair, `gren-format -r .` in a project root would rewrite every
 dependency the project has installed, which is both a surprise and a diff nobody
 can review. The no-argument project run has never had this problem: it takes its
-file list from `gren.json`'s source directories rather than from the tree. -}
+file list from `geng.toml`'s source directories rather than from the tree. -}
 isWalkableDirectory : String -> Bool
 isWalkableDirectory name =
     not (String.startsWith "." name)
@@ -515,7 +515,7 @@ run { fsPermission, pathToString, projectPath, outline, removeUnusedImports, pro
                     processFn { path, source } previous =
                         Task.andThen
                             (\acc ->
-                                if path.extension /= "gren" then
+                                if path.extension /= "geng" then
                                     -- Probably kernel code
                                     Task.succeed acc
 
@@ -858,7 +858,7 @@ diffProject { stdout, fsPermission, pathToString, projectPath, outline, removeUn
                     processFn { path, source } previous =
                         Task.andThen
                             (\_ ->
-                                if path.extension /= "gren" then
+                                if path.extension /= "geng" then
                                     -- Probably kernel code
                                     Task.succeed {}
 
@@ -1247,7 +1247,7 @@ prettifyError error =
                 "COULD NOT FIND SOURCE CODE"
                 Nothing
                 (PP.verticalBlock
-                    [ PP.words "An error occured while I was searching for .gren files in this project."
+                    [ PP.words "An error occured while I was searching for .geng files in this project."
                     , PP.empty
                     , PP.words "The error is:"
                     , PP.empty

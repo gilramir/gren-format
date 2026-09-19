@@ -7,17 +7,13 @@
   "shell": {
     "scripts": {
       "build": [
-        "gren make Main"
+        "./build.sh"
       ],
       "build_test": [
-        "gren make Main",
-        "cd tests/",
-        "gren make Main"
+        "./build.sh"
       ],
       "test": [
-        "gren make Main",
-        "cd tests/",
-        "gren run Main"
+        "./tests/run-tests.sh"
       ]
     }
   }

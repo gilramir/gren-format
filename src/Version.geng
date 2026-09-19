@@ -7,7 +7,7 @@ not bump it here.** `npm version <patch|minor|major>` is the only place a versio
 is bumped; `build.sh` regenerates this file from `package.json` before every
 build, so a hand edit is overwritten on the next one.
 
-It is committed rather than ignored so that a plain `gren make Main` works in a
+It is committed rather than ignored so that a plain `geng make Main` works in a
 fresh clone; `build.sh` rewrites it only when the version actually changed.
 
 -}

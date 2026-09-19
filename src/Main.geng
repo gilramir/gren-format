@@ -4,7 +4,7 @@ module Main exposing (main)
 (rootless — invoked directly as `gren-format [flags]`, no command word).
 
 With no arguments it formats every source file in the project in place (requires
-`gren.json` in the current directory). The remaining flags are single-file
+`geng.toml` in the current directory). The remaining flags are single-file
 inspection/debug aids.
 -}
 
@@ -16,7 +16,6 @@ import Dict
 import FileSystem
 import FileSystem.Path as Path exposing (Path)
 import Format
-import Init
 import Node
 import Stream.Log
 import Task exposing (Task)
@@ -105,26 +104,40 @@ command =
     }
 
 
-main : Node.SimpleProgram a
+main : Task Never {}
 main =
-    Program.runRootWithContext
-        { name = "gren-format"
-        , version = Version.version
-        , command = command
-        , init =
-            \_env toProgram ->
-                Init.await FileSystem.initialize <| \fsPermission ->
-                Init.await Terminal.initialize <| \terminalConfig ->
-                Init.awaitTask Node.getEnvironmentVariables <| \envVars ->
-                    let
-                        -- Color only when stderr/stdout is an interactive terminal
-                        -- and the user hasn't set NO_COLOR (https://no-color.org).
-                        useColor =
-                            terminalConfig /= Nothing && not (Dict.member "NO_COLOR" envVars)
-                    in
-                    toProgram { fs = fsPermission, useColor = useColor }
-        , onCommand = onCommand
-        }
+    Node.getEnvironment
+        |> Task.andThen
+            (\environment ->
+                Program.runRootWithContext environment
+                    { name = "gren-format"
+                    , version = Version.version
+                    , command = command
+                    , init = init
+                    , onCommand = onCommand
+                    }
+            )
+
+
+init : Node.Environment -> Task Never Context
+init _env =
+    FileSystem.initialize
+        |> Task.andThen
+            (\fsPermission ->
+                Terminal.initialize
+                    |> Task.andThen
+                        (\terminalConfig ->
+                            Node.getEnvironmentVariables
+                                |> Task.map
+                                    (\envVars ->
+                                        -- Color only when stderr/stdout is an interactive terminal
+                                        -- and the user hasn't set NO_COLOR (https://no-color.org).
+                                        { fs = fsPermission
+                                        , useColor = terminalConfig /= Nothing && not (Dict.member "NO_COLOR" envVars)
+                                        }
+                                    )
+                        )
+            )
 
 
 onCommand : Node.Environment -> Context -> FormatFlags -> Task Program.Failure {}
@@ -181,10 +194,10 @@ onCommand env context flags =
     else if flags.recurse && Array.isEmpty flags.files then
         -- Only a directory argument has a subtree to walk. The no-argument run
         -- already reaches every source file the project has, because it takes
-        -- its list from `gren.json` rather than from the directory tree, so a
+        -- its list from `geng.toml` rather than from the directory tree, so a
         -- `--recurse` there is either a misunderstanding or a typo for a path
         -- that got lost -- both worth saying out loud rather than ignoring.
-        Task.fail (Program.ExitMessage "--recurse applies to a directory path argument. With no arguments, gren-format already formats every source directory listed in gren.json.")
+        Task.fail (Program.ExitMessage "--recurse applies to a directory path argument. With no arguments, gren-format already formats every source directory listed in geng.toml.")
 
     else if not (Array.isEmpty flags.files) then
         if anyFlagSet then
@@ -262,7 +275,7 @@ progressStream env flags =
 
 
 {-| The shared front half of the whole-project modes: locate the project's
-`gren.json`, build the run's `Format.Config`, and hand it to whichever of them
+`geng.toml`, build the run's `Format.Config`, and hand it to whichever of them
 was asked for -- `Format.run` to rewrite the files, `Format.diffProject` to
 print what rewriting them would change. -}
 projectTask : Node.Environment -> Context -> FormatFlags -> (Format.Config -> Task Format.Error a) -> Task Program.Failure a
@@ -272,7 +285,7 @@ projectTask env context flags op =
             (\err ->
                 when err is
                     ProjectOutline.ReadProjectOutlineNoProject _ ->
-                        Program.ExitMessage "Could not find a gren.json in this directory or any parent directory. Run `gren-format -h` to see all the options"
+                        Program.ExitMessage "Could not find a geng.toml in this directory or any parent directory. Run `gren-format -h` to see all the options"
 
                     _ ->
                         Program.ExitMessage (reportToString context.useColor (ProjectOutline.prettifyProjectOutlineError err))

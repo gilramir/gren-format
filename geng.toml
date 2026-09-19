@@ -1,0 +1,27 @@
+[application]
+geng = "0.6.0 <= v < 0.7.0"
+runtime = "node"
+source-directories = ["src"]
+
+[dependencies]
+"github.com/gilramir/gren-argparse" = "2.0.0 <= v < 3.0.0"
+"github.com/gilramir/gren-diff" = "1.0.0 <= v < 2.0.0"
+"github.com/gilramir/gren-format-lib" = "1.1.0 <= v < 2.0.0"
+"github.com/geng-language/compiler-common" = "3.0.0 <= v < 4.0.0"
+"github.com/geng-language/compiler-node" = "5.0.0 <= v < 6.0.0"
+"github.com/geng-language/node" = "6.1.0 <= v < 7.0.0"
+"github.com/geng-language/stream" = "0.1.0 <= v < 0.2.0"
+"github.com/gilramir/gren-toml" = "1.1.0 <= v < 2.0.0"
+
+[sources]
+"github.com/gilramir/gren-argparse" = { path = "../gren-argparse" }
+"github.com/gilramir/gren-diff" = { path = "../gren-diff" }
+"github.com/gilramir/gren-format-lib" = { path = "../gren-format-lib" }
+"github.com/geng-language/compiler-common" = { path = "../../gren-lang/compiler-common" }
+"github.com/geng-language/compiler-node" = { path = "../../gren-lang/compiler-node" }
+"github.com/geng-language/node" = { path = "../../gren-lang/node" }
+"github.com/geng-language/stream" = { path = "../../../packages/stream" }
+"github.com/geng-language/url" = { path = "../../../packages/url" }
+"github.com/gilramir/gren-toml" = { path = "../gren-toml" }
+"github.com/gilramir/gren-bignum" = { path = "../gren-bignum" }
+"github.com/gilramir/gren-civil-time" = { path = "../gren-civil-time" }

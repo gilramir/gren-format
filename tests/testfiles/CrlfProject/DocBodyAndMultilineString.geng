@@ -1,4 +1,4 @@
-port module Mod0 exposing
+module Mod0 exposing
     ( Union0(..)
     )
 import Qux4 exposing

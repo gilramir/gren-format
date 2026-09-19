@@ -34,12 +34,12 @@ showFlagSuite perms =
                                 {}
                         )
             , U.test "missing file exits nonzero" <| \s ->
-                Support.runApp perms s.appPath { cwd = Nothing } [ "--show", "/nonexistent/Missing.gren" ]
+                Support.runApp perms s.appPath { cwd = Nothing } [ "--show", "/nonexistent/Missing.geng" ]
                     |> Task.map (\r -> Expect.notEqual 0 r.exitCode)
             , U.test "unparseable file exits nonzero" <| \s ->
                 let
                     bad =
-                        Path.append (Path.fromPosixString "Bad.gren") s.dir
+                        Path.append (Path.fromPosixString "Bad.geng") s.dir
                 in
                 Support.writeText perms bad "this is not valid gren syntax\n"
                     |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Nothing } [ "--show", Path.toPosixString bad ])

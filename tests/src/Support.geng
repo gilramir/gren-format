@@ -89,7 +89,7 @@ locateApp : Perms -> Task String String
 locateApp perms =
     FileSystem.realPath perms.fs (Path.fromPosixString "../app")
         |> Task.map Path.toPosixString
-        |> Task.mapError (\e -> "could not locate gren-format app (build it first?): " ++ Debug.toString e)
+        |> Task.mapError (\e -> "could not locate gren-format app (build it first?): " ++ FileSystem.errorToString e)
 
 
 -- FIXTURES
@@ -101,7 +101,7 @@ scratch dir per test, so it's shared as-is by any suite that just needs
 some valid Gren file to point a flag at. -}
 helloFixture : String
 helloFixture =
-    "testfiles/Hello.gren"
+    "testfiles/Hello.geng"
 
 
 {-| An unformatted `module Hello exposing (x)` -- the source most suites
@@ -121,13 +121,13 @@ expectContains needle haystack =
         Expect.pass
 
     else
-        Expect.fail ("expected output to contain " ++ Debug.toString needle ++ "\n--- actual ---\n" ++ haystack)
+        Expect.fail ("expected output to contain " ++ ("\"" ++ needle ++ "\"") ++ "\n--- actual ---\n" ++ haystack)
 
 
 expectNotContains : String -> String -> Expectation
 expectNotContains needle haystack =
     if String.contains needle haystack then
-        Expect.fail ("expected output NOT to contain " ++ Debug.toString needle ++ "\n--- actual ---\n" ++ haystack)
+        Expect.fail ("expected output NOT to contain " ++ ("\"" ++ needle ++ "\"") ++ "\n--- actual ---\n" ++ haystack)
 
     else
         Expect.pass
@@ -149,7 +149,7 @@ expectJsonHasFields fields out =
             Expect.pass
 
         Err e ->
-            Expect.fail ("expected JSON with fields " ++ Debug.toString fields ++ ": " ++ Decode.errorToString e)
+            Expect.fail ("expected JSON with fields " ++ ("[" ++ String.join ", " fields ++ "]") ++ ": " ++ Decode.errorToString e)
 
 
 {-| Pass iff `out` parses as JSON at all (any value) — mirrors a bare
@@ -184,7 +184,7 @@ writeText : Perms -> Path -> String -> Task String {}
 writeText perms path text =
     FileSystem.writeFile perms.fs (Bytes.fromString text) path
         |> Task.map (\_ -> {})
-        |> Task.mapError (\e -> "write " ++ Path.toPosixString path ++ ": " ++ Debug.toString e)
+        |> Task.mapError (\e -> "write " ++ Path.toPosixString path ++ ": " ++ FileSystem.errorToString e)
 
 
 {-| Create a symbolic link at `link` pointing at `target` (as written, so a
@@ -197,7 +197,21 @@ makeSymlink : Perms -> { target : String, link : Path } -> Task String {}
 makeSymlink perms { target, link } =
     ChildProcess.run perms.childProcess "ln" [ "-s", target, Path.toPosixString link ] ChildProcess.defaultRunOptions
         |> Task.map (\_ -> {})
-        |> Task.mapError (\e -> "ln -s " ++ target ++ " " ++ Path.toPosixString link ++ ": " ++ Debug.toString e)
+        |> Task.mapError
+            (\e ->
+                "ln -s "
+                    ++ target
+                    ++ " "
+                    ++ Path.toPosixString link
+                    ++ ": "
+                    ++ (when e is
+                            ChildProcess.InitError { errorCode } ->
+                                errorCode
+
+                            ChildProcess.ProgramError { exitCode } ->
+                                "exit " ++ String.fromInt exitCode
+                       )
+            )
 
 
 {-| Create a directory (and any missing parent), for the tests that provision a
@@ -206,14 +220,14 @@ makeDir : Perms -> Path -> Task String {}
 makeDir perms path =
     FileSystem.makeDirectory perms.fs { recursive = True } path
         |> Task.map (\_ -> {})
-        |> Task.mapError (\e -> "mkdir " ++ Path.toPosixString path ++ ": " ++ Debug.toString e)
+        |> Task.mapError (\e -> "mkdir " ++ Path.toPosixString path ++ ": " ++ FileSystem.errorToString e)
 
 
 readBack : Perms -> Path -> Task String String
 readBack perms path =
     FileSystem.readFile perms.fs path
         |> Task.map (\bytes -> Bytes.toString bytes |> Maybe.withDefault "")
-        |> Task.mapError (\e -> "read " ++ Path.toPosixString path ++ ": " ++ Debug.toString e)
+        |> Task.mapError (\e -> "read " ++ Path.toPosixString path ++ ": " ++ FileSystem.errorToString e)
 
 
 {-| A fixture pairing the located app with a fresh temp dir — for suites that
@@ -228,37 +242,34 @@ makeScratch : Perms -> String -> Task String Scratch
 makeScratch perms appPath =
     FileSystem.makeTempDirectory perms.fs "gren-format-test"
         |> Task.map (\dir -> { appPath = appPath, dir = dir })
-        |> Task.mapError (\e -> "makeTempDirectory: " ++ Debug.toString e)
+        |> Task.mapError (\e -> "makeTempDirectory: " ++ FileSystem.errorToString e)
 
 
 removeScratch : Perms -> Scratch -> Task String {}
 removeScratch perms scratch =
     FileSystem.remove perms.fs { recursive = True } scratch.dir
         |> Task.map (\_ -> {})
-        |> Task.mapError (\e -> "remove temp dir: " ++ Debug.toString e)
+        |> Task.mapError (\e -> "remove temp dir: " ++ FileSystem.errorToString e)
 
 
-{-| Provision a minimal Gren application under `dir`: a `gren.json` plus
-`src/Hello.gren` with the given (dirty) contents — the `--all` test's fixture.
+{-| Provision a minimal Gren application under `dir`: a `geng.toml` plus
+`src/Hello.geng` with the given (dirty) contents — the `--all` test's fixture.
 -}
 makeProject : Perms -> Path -> String -> Task String {}
 makeProject perms dir helloContents =
     FileSystem.makeDirectory perms.fs { recursive = True } (Path.append (Path.fromPosixString "src") dir)
-        |> Task.mapError (\e -> "mkdir src: " ++ Debug.toString e)
-        |> Task.andThen (\_ -> writeText perms (Path.append (Path.fromPosixString "gren.json") dir) minimalGrenJson)
-        |> Task.andThen (\_ -> writeText perms (Path.append (Path.fromPosixString "src/Hello.gren") dir) helloContents)
+        |> Task.mapError (\e -> "mkdir src: " ++ FileSystem.errorToString e)
+        |> Task.andThen (\_ -> writeText perms (Path.append (Path.fromPosixString "geng.toml") dir) minimalGrenJson)
+        |> Task.andThen (\_ -> writeText perms (Path.append (Path.fromPosixString "src/Hello.geng") dir) helloContents)
 
 
 minimalGrenJson : String
 minimalGrenJson =
     """
-    {
-        "type": "application",
-        "platform": "node",
-        "source-directories": [ "src" ],
-        "gren-version": "0.6.5",
-        "dependencies": { "direct": {}, "indirect": {} }
-    }
+    [application]
+    geng = "0.6.0 <= v < 0.7.0"
+    runtime = "node"
+    source-directories = ["src"]
     """
 
 

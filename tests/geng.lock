@@ -1,0 +1,34 @@
+# Written by geng from geng.toml: the version of each package this project is
+# built with, and the commit its tag named when it was chosen. A tag that
+# names another commit later is refused. Commit this file for an application.
+lock-version = 1
+
+[[package]]
+name = "github.com/geng-language/node"
+version = "6.1.3"
+path = "../../../gren-lang/node"
+
+[[package]]
+name = "github.com/geng-language/stream"
+version = "0.1.0"
+path = "../../../../packages/stream"
+
+[[package]]
+name = "github.com/geng-language/test"
+version = "5.0.0"
+path = "../../../gren-lang/test"
+
+[[package]]
+name = "github.com/geng-language/url"
+version = "6.0.0"
+path = "../../../../packages/url"
+
+[[package]]
+name = "github.com/gilramir/gren-argparse"
+version = "2.0.1"
+path = "../../gren-argparse"
+
+[[package]]
+name = "github.com/gilramir/gren-unit-node"
+version = "1.1.0"
+path = "../../gren-unit-node"

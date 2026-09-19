@@ -1,7 +1,7 @@
 module NoArgsFormatTests exposing (noArgsFormatSuite)
 
 {-| CLI integration tests for running `gren-format` with no arguments when a
-`gren.json` project is present — formats every source file in place.
+`geng.toml` project is present — formats every source file in place.
 
 This mode reads its sources through `Outline.findSourceFiles`, not through
 `Format.readSource`, so anything the read boundary is supposed to do has to be
@@ -9,7 +9,7 @@ checked here separately — CRLF normalization was missing from exactly this
 path, and `--show` passed on the very same bytes.
 
 The CRLF case reads its module from
-`testfiles/CrlfProject/DocBodyAndMultilineString.gren` rather than building one
+`testfiles/CrlfProject/DocBodyAndMultilineString.geng` rather than building one
 inline, because the trigger is narrower than "has a doc comment": several
 hand-written CRLF modules with multi-row doc comments pass with or without the
 fix. That file is a mechanically reduced real failure (from
@@ -39,7 +39,7 @@ noArgsFormatSuite perms =
             [ U.test "formats project files in place" <| \s ->
                 let
                     srcFile =
-                        Path.append (Path.fromPosixString "src/Hello.gren") s.dir
+                        Path.append (Path.fromPosixString "src/Hello.geng") s.dir
                 in
                 Support.makeProject perms s.dir dirtyHello
                     |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Just (Path.toPosixString s.dir) } [])
@@ -48,7 +48,7 @@ noArgsFormatSuite perms =
                         (\res ->
                             Expect.all
                                 [ \_ -> Expect.equal 0 res.r.exitCode
-                                , \_ -> Support.expectContains "Hello.gren" res.r.stdout
+                                , \_ -> Support.expectContains "Hello.geng" res.r.stdout
                                 , \_ -> Support.expectContains "\n\n\n" res.after
                                 ]
                                 {}
@@ -65,12 +65,12 @@ noArgsFormatSuite perms =
             , U.test "a CRLF project formats in place like any other, and the run after it is a no-op" <| \s ->
                 let
                     srcFile =
-                        Path.append (Path.fromPosixString "src/Hello.gren") s.dir
+                        Path.append (Path.fromPosixString "src/Hello.geng") s.dir
 
                     runOnce =
                         Support.runApp perms s.appPath { cwd = Just (Path.toPosixString s.dir) } []
                 in
-                readBack perms (Path.fromPosixString "testfiles/CrlfProject/DocBodyAndMultilineString.gren")
+                readBack perms (Path.fromPosixString "testfiles/CrlfProject/DocBodyAndMultilineString.geng")
                     |> Task.andThen (\lf -> Support.makeProject perms s.dir (String.replace "\n" "\r\n" lf))
                     |> Task.andThen (\_ -> runOnce)
                     |> Task.andThen (\first -> runOnce |> Task.map (\second -> { first = first, second = second }))

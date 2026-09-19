@@ -97,43 +97,38 @@ shiftExposed delta exposed =
 -- DECLARATIONS
 
 
-{-| Shift every position in a module's declarations -- `values`, `unions`,
-`aliases`, `Ports`-kind `effects`, and `binops` -- by `delta`, unconditionally
-(no per-node cutoff check). Valid because Gren's grammar guarantees every one
-of these comes after *every* `import`, so by the time `RemoveUnusedImports`
-calls this, there is exactly one relevant delta: the total rows freed across
-the whole import block.
+{-| Shift every position in a module's declarations -- `values`, `classes`,
+`instances`, `unions`, `aliases`, `prims`, `externs` and `binops` -- by
+`delta`, unconditionally (no per-node cutoff check). Valid because the
+grammar guarantees every one of these comes after *every* `import`, so by the
+time `RemoveUnusedImports` calls this, there is exactly one relevant delta: the
+total rows freed across the whole import block.
 
 Deliberately does **not** touch `.name`, `.exports`, `.docs`, or `.imports`
 -- the caller owns `imports` (each surviving import needs its own,
 individually-computed delta, not this one uniform value) and the rest are
-always before the import block, so they're never shifted at all.
-
-Also deliberately does **not** shift a `Manager`-kind `effects` (an
-`effect module Foo where { command = ..., subscription = ... }` clause) --
-unlike `Ports`, `Manager`'s positions are parsed as part of the module
-header line itself, strictly *before* `exports`/`docs`/`imports` are even
-parsed (see `compiler-common/src/Compiler/Parse/Module.gren`, where `effects`
-is bound in the same `Parser.succeed` as the module `name`). Applying the
-import-block delta to it would corrupt those positions for every effect
-module -- caught by an adversarial design review before this was ever
-implemented, not by any automated check (`Compiler.Ast.Compare` ignores
-positions, so a wrong shift here wouldn't fail AST-equivalence). -}
+always before the import block, so they're never shifted at all. -}
 shiftDeclarations :
     Int
     -> Src.Module
     ->
         { values : Array (Src.ModuleDeclaration Src.Value)
+        , classes : Array (Src.ModuleDeclaration Src.Class)
+        , instances : Array (Src.ModuleDeclaration Src.Instance)
         , unions : Array (Src.ModuleDeclaration Src.Union)
         , aliases : Array (Src.ModuleDeclaration Src.Alias)
-        , effects : Src.Effects
+        , prims : Array (Src.ModuleDeclaration Src.Prim)
+        , externs : Array (Src.ModuleDeclaration Src.Extern)
         , binops : Array (SP.Located Src.Infix)
         }
 shiftDeclarations delta modAst =
     { values = Array.map (shiftModuleDeclaration delta shiftValue) modAst.values
+    , classes = Array.map (shiftModuleDeclaration delta shiftClass) modAst.classes
+    , instances = Array.map (shiftModuleDeclaration delta shiftInstance) modAst.instances
     , unions = Array.map (shiftModuleDeclaration delta shiftUnion) modAst.unions
     , aliases = Array.map (shiftModuleDeclaration delta shiftAlias) modAst.aliases
-    , effects = shiftEffects delta modAst.effects
+    , prims = Array.map (shiftModuleDeclaration delta shiftPrim) modAst.prims
+    , externs = Array.map (shiftModuleDeclaration delta shiftExtern) modAst.externs
     , binops = Array.map (shiftLocated delta) modAst.binops
     }
 
@@ -162,11 +157,74 @@ shiftValue delta value =
 
 shiftSignature :
     Int
-    -> { start : SP.Position, type_ : Src.Type }
-    -> { start : SP.Position, type_ : Src.Type }
+    -> { start : SP.Position, constraints : Array Src.Constraint, type_ : Src.Type }
+    -> { start : SP.Position, constraints : Array Src.Constraint, type_ : Src.Type }
 shiftSignature delta sig =
     { start = shiftPosition delta sig.start
+    , constraints = Array.map (shiftConstraint delta) sig.constraints
     , type_ = shiftType delta sig.type_
+    }
+
+
+shiftConstraint : Int -> Src.Constraint -> Src.Constraint
+shiftConstraint delta c =
+    { c
+        | class = shiftLocated delta c.class
+        , var = shiftLocated delta c.var
+    }
+
+
+shiftAnnotation : Int -> Src.Annotation -> Src.Annotation
+shiftAnnotation delta ann =
+    { constraints = Array.map (shiftConstraint delta) ann.constraints
+    , type_ = shiftType delta ann.type_
+    }
+
+
+shiftClass : Int -> Src.Class -> Src.Class
+shiftClass delta class_ =
+    { class_
+        | name = shiftLocated delta class_.name
+        , var = shiftLocated delta class_.var
+        , methods = Array.map (shiftClassMethodLoc delta) class_.methods
+    }
+
+
+shiftClassMethodLoc : Int -> SP.Located Src.ClassMethod -> SP.Located Src.ClassMethod
+shiftClassMethodLoc delta locMethod =
+    { locMethod
+        | start = shiftPosition delta locMethod.start
+        , end = shiftPosition delta locMethod.end
+        , value =
+            { name = shiftLocated delta locMethod.value.name
+            , signature = shiftAnnotation delta locMethod.value.signature
+            }
+    }
+
+
+shiftInstance : Int -> Src.Instance -> Src.Instance
+shiftInstance delta instance_ =
+    { constraints = Array.map (shiftConstraint delta) instance_.constraints
+    , head = shiftType delta instance_.head
+    , methods = Array.map (shiftDefineRecordLoc delta) instance_.methods
+    }
+
+
+shiftDefineRecordLoc : Int -> SP.Located Src.DefineRecord -> SP.Located Src.DefineRecord
+shiftDefineRecordLoc delta locDef =
+    { locDef
+        | start = shiftPosition delta locDef.start
+        , end = shiftPosition delta locDef.end
+        , value = shiftDefineRecord delta locDef.value
+    }
+
+
+shiftDefineRecord : Int -> Src.DefineRecord -> Src.DefineRecord
+shiftDefineRecord delta dr =
+    { name = shiftLocated delta dr.name
+    , args = Array.map (shiftPattern delta) dr.args
+    , body = shiftExpression delta dr.body
+    , typeSignature = Maybe.map (shiftAnnotation delta) dr.typeSignature
     }
 
 
@@ -176,6 +234,8 @@ shiftUnion delta union =
         | name = shiftLocated delta union.name
         , vars = Array.map (shiftLocated delta) union.vars
         , variants = Array.map (shiftUnionVariantLoc delta) union.variants
+        , derives = Array.map (shiftLocated delta) union.derives
+        , keyword = shiftPosition delta union.keyword
     }
 
 
@@ -205,26 +265,37 @@ shiftAlias delta alias_ =
     }
 
 
-shiftPort : Int -> Src.Port -> Src.Port
-shiftPort delta port_ =
-    { port_
-        | name = shiftLocated delta port_.name
-        , signature = shiftType delta port_.signature
+shiftPrim : Int -> Src.Prim -> Src.Prim
+shiftPrim delta prim =
+    { name = shiftLocated delta prim.name
+    , primName = shiftLocated delta prim.primName
+    , signature = shiftType delta prim.signature
     }
 
 
-shiftEffects : Int -> Src.Effects -> Src.Effects
-shiftEffects delta effects =
-    when effects is
-        Src.NoEffects ->
-            Src.NoEffects
+shiftExtern : Int -> Src.Extern -> Src.Extern
+shiftExtern delta extern =
+    { name = shiftLocated delta extern.name
+    , impls = Array.map (shiftExternImpl delta) extern.impls
+    , signature = shiftType delta extern.signature
+    , definition =
+        Maybe.map
+            (\def ->
+                { name = shiftLocated delta def.name
+                , args = Array.map (shiftPattern delta) def.args
+                , body = shiftExpression delta def.body
+                }
+            )
+            extern.definition
+    }
 
-        Src.Ports ports ->
-            Src.Ports (Array.map (shiftModuleDeclaration delta shiftPort) ports)
 
-        Src.Manager manager ->
-            -- Never shifted -- see shiftDeclarations's doc comment for why.
-            Src.Manager manager
+shiftExternImpl : Int -> Src.ExternImpl -> Src.ExternImpl
+shiftExternImpl delta impl =
+    { impl
+        | language = shiftLocated delta impl.language
+        , names = Array.map (shiftLocated delta) impl.names
+    }
 
 
 -- TYPES
@@ -405,6 +476,9 @@ shiftExpression_ delta expr =
         Src.Parens e ->
             Src.Parens (shiftExpression delta e)
 
+        Src.Annotated r ->
+            Src.Annotated { expression = shiftExpression delta r.expression, annotation = shiftType delta r.annotation }
+
 
 shiftRecordField : Int -> Src.RecordField -> Src.RecordField
 shiftRecordField delta f =
@@ -434,12 +508,7 @@ shiftDef : Int -> Src.Def -> Src.Def
 shiftDef delta def =
     when def is
         Src.Define dr ->
-            Src.Define
-                { name = shiftLocated delta dr.name
-                , args = Array.map (shiftPattern delta) dr.args
-                , body = shiftExpression delta dr.body
-                , typeSignature = Maybe.map (shiftType delta) dr.typeSignature
-                }
+            Src.Define (shiftDefineRecord delta dr)
 
         Src.Destruct r ->
             Src.Destruct { pattern = shiftPattern delta r.pattern, body = shiftExpression delta r.body }

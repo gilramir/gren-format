@@ -31,8 +31,8 @@ already has a doc comment, an import survives, or the first declaration
 carries no doc.
 
 Each case is a fixture pair under `testfiles/RemoveUnusedImports/`:
-`<Name>.dirty.gren` is run through `--remove-unused-imports --show`, and the
-output must match `<Name>.formatted.gren` byte-for-byte.
+`<Name>.dirty.geng` is run through `--remove-unused-imports --show`, and the
+output must match `<Name>.formatted.geng` byte-for-byte.
 
 @docs removeUnusedImportsFlagSuite
 -}
@@ -70,10 +70,8 @@ removeUnusedImportsFlagSuite perms =
                 expectRemoveUnusedImports perms s "StackedLeadingComments"
             , U.test "a placeholder comment travels with the import below it, so the surrounding imports still sort as one run" <| \s ->
                 expectRemoveUnusedImports perms s "GroupsSeparate"
-            , U.test "an effect module's `where { ... }` header positions survive the shift untouched" <| \s ->
-                expectRemoveUnusedImports perms s "EffectModule"
-            , U.test "an import used only in a port's type signature is kept" <| \s ->
-                expectRemoveUnusedImports perms s "PortSignatureUsage"
+            , U.test "an import used only by Geng's syntax is kept -- a constraint, a qualified class in a method's context, `@derive`, an instance head, a primitive's or an extern's signature, an expression annotation -- and the declarations after the cut shift with their comments" <| \s ->
+                expectRemoveUnusedImports perms s "GengSyntaxUsage"
             , U.test "a per-declaration doc comment after the cut is shifted along with its declaration" <| \s ->
                 expectRemoveUnusedImports perms s "DeclarationDocComment"
             , U.test "an exposed Type(..) is kept even when the type name itself is never referenced" <| \s ->
@@ -138,24 +136,24 @@ removeUnusedImportsFlagSuite perms =
         }
 
 
-{-| Read `testfiles/RemoveUnusedImports/<fixtureBase>.dirty.gren`, run it
+{-| Read `testfiles/RemoveUnusedImports/<fixtureBase>.dirty.geng`, run it
 through `--remove-unused-imports --show`, and compare against the sibling
-`.formatted.gren` fixture. -}
+`.formatted.geng` fixture. -}
 expectRemoveUnusedImports : Perms -> Scratch -> String -> Task.Task String Expect.Expectation
 expectRemoveUnusedImports perms s fixtureBase =
     let
         file =
-            Path.append (Path.fromPosixString "Fixture.gren") s.dir
+            Path.append (Path.fromPosixString "Fixture.geng") s.dir
 
         fixturePath extension =
             Path.fromPosixString ("testfiles/RemoveUnusedImports/" ++ fixtureBase ++ extension)
     in
-    Support.readBack perms (fixturePath ".dirty.gren")
+    Support.readBack perms (fixturePath ".dirty.geng")
         |> Task.andThen (\dirty -> Support.writeText perms file dirty)
         |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Nothing } [ "--remove-unused-imports", "--show", Path.toPosixString file ])
         |> Task.andThen
             (\r ->
-                Support.readBack perms (fixturePath ".formatted.gren")
+                Support.readBack perms (fixturePath ".formatted.geng")
                     |> Task.map
                         (\expected ->
                             Expect.all

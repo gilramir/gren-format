@@ -43,7 +43,7 @@ positionalSuite perms =
             [ U.test "formats a file in place" <| \s ->
                 let
                     file =
-                        Path.append (Path.fromPosixString "Hello.gren") s.dir
+                        Path.append (Path.fromPosixString "Hello.geng") s.dir
                 in
                 Support.writeText perms file dirtyHello
                     |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Nothing } [ Path.toPosixString file ])
@@ -51,10 +51,10 @@ positionalSuite perms =
             , U.test "formats multiple files in place" <| \s ->
                 let
                     fileA =
-                        Path.append (Path.fromPosixString "A.gren") s.dir
+                        Path.append (Path.fromPosixString "A.geng") s.dir
 
                     fileB =
-                        Path.append (Path.fromPosixString "B.gren") s.dir
+                        Path.append (Path.fromPosixString "B.geng") s.dir
                 in
                 Support.writeText perms fileA "module A exposing (x)\nx : Int\nx =\n    1\n"
                     |> Task.andThen (\_ -> Support.writeText perms fileB "module B exposing (x)\nx : Int\nx =\n    1\n")
@@ -79,7 +79,7 @@ positionalSuite perms =
             , U.test "summary reports reformatted count" <| \s ->
                 let
                     file =
-                        Path.append (Path.fromPosixString "Hello.gren") s.dir
+                        Path.append (Path.fromPosixString "Hello.geng") s.dir
                 in
                 Support.writeText perms file dirtyHello
                     |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Nothing } [ Path.toPosixString file ])
@@ -87,7 +87,7 @@ positionalSuite perms =
             , U.test "a CRLF file is rewritten with LF, even when nothing else about it changes" <| \s ->
                 let
                     file =
-                        Path.append (Path.fromPosixString "Hello.gren") s.dir
+                        Path.append (Path.fromPosixString "Hello.geng") s.dir
 
                     formatOnce =
                         Support.runApp perms s.appPath { cwd = Nothing } [ Path.toPosixString file ]
@@ -210,13 +210,13 @@ positionalSuite perms =
                 -- reads is what the target holds.
                 let
                     target =
-                        Path.append (Path.fromPosixString "Target.gren") s.dir
+                        Path.append (Path.fromPosixString "Target.geng") s.dir
 
                     link =
-                        Path.append (Path.fromPosixString "Link.gren") s.dir
+                        Path.append (Path.fromPosixString "Link.geng") s.dir
                 in
                 Support.writeText perms target dirtyHello
-                    |> Task.andThen (\_ -> Support.makeSymlink perms { target = "Target.gren", link = link })
+                    |> Task.andThen (\_ -> Support.makeSymlink perms { target = "Target.geng", link = link })
                     |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Nothing } [ Path.toPosixString link ])
                     |> Task.andThen
                         (\r ->
@@ -238,17 +238,17 @@ positionalSuite perms =
                 -- to catch one link still formats everything else on the line.
                 let
                     target =
-                        Path.append (Path.fromPosixString "Target.gren") s.dir
+                        Path.append (Path.fromPosixString "Target.geng") s.dir
 
                     link =
-                        Path.append (Path.fromPosixString "Link.gren") s.dir
+                        Path.append (Path.fromPosixString "Link.geng") s.dir
 
                     real =
-                        Path.append (Path.fromPosixString "Real.gren") s.dir
+                        Path.append (Path.fromPosixString "Real.geng") s.dir
                 in
                 Support.writeText perms target dirtyHello
                     |> Task.andThen (\_ -> Support.writeText perms real dirtyHello)
-                    |> Task.andThen (\_ -> Support.makeSymlink perms { target = "Target.gren", link = link })
+                    |> Task.andThen (\_ -> Support.makeSymlink perms { target = "Target.geng", link = link })
                     |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Nothing } [ Path.toPosixString link, Path.toPosixString real ])
                     |> Task.andThen (\r -> readBack perms real |> Task.map (\after -> { r = r, after = after }))
                     |> Task.map
@@ -269,7 +269,7 @@ positionalSuite perms =
                 -- one that says "0 files ... 1 file".
                 let
                     file =
-                        Path.append (Path.fromPosixString "Hello.gren") s.dir
+                        Path.append (Path.fromPosixString "Hello.geng") s.dir
                 in
                 Support.writeText perms file dirtyHello
                     |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Nothing } [ Path.toPosixString file ])
@@ -286,44 +286,44 @@ positionalSuite perms =
         }
 
 
-{-| A two-level tree under `dir`: `Top.gren` directly in it, `sub/Nested.gren`
+{-| A two-level tree under `dir`: `Top.geng` directly in it, `sub/Nested.geng`
 one level down, both unformatted. One `gren-format <dir>` reaches the first and
 not the second; `--recurse` reaches both. -}
 provisionTree : Perms -> Path.Path -> Task.Task String {}
 provisionTree perms dir =
     Support.makeDir perms (Path.append (Path.fromPosixString "sub") dir)
-        |> Task.andThen (\_ -> Support.writeText perms (Path.append (Path.fromPosixString "Top.gren") dir) dirtyHello)
-        |> Task.andThen (\_ -> Support.writeText perms (Path.append (Path.fromPosixString "sub/Nested.gren") dir) dirtyHello)
+        |> Task.andThen (\_ -> Support.writeText perms (Path.append (Path.fromPosixString "Top.geng") dir) dirtyHello)
+        |> Task.andThen (\_ -> Support.writeText perms (Path.append (Path.fromPosixString "sub/Nested.geng") dir) dirtyHello)
 
 
 readTree : Perms -> Path.Path -> Task.Task String { top : String, nested : String }
 readTree perms dir =
-    readBack perms (Path.append (Path.fromPosixString "Top.gren") dir)
+    readBack perms (Path.append (Path.fromPosixString "Top.geng") dir)
         |> Task.andThen
             (\top ->
-                readBack perms (Path.append (Path.fromPosixString "sub/Nested.gren") dir)
+                readBack perms (Path.append (Path.fromPosixString "sub/Nested.geng") dir)
                     |> Task.map (\nested -> { top = top, nested = nested })
             )
 
 
 {-| A walked directory holding one real file and one symlink to a directory
-that sits *outside* the walk. `Outside.gren` is reachable only through the
+that sits *outside* the walk. `Outside.geng` is reachable only through the
 link, so it is rewritten if and only if the walk followed it. -}
 provisionLinkedTree : Perms -> Path.Path -> Task.Task String {}
 provisionLinkedTree perms dir =
     Support.makeDir perms (Path.append (Path.fromPosixString "walked") dir)
         |> Task.andThen (\_ -> Support.makeDir perms (Path.append (Path.fromPosixString "outside") dir))
-        |> Task.andThen (\_ -> Support.writeText perms (Path.append (Path.fromPosixString "walked/Top.gren") dir) dirtyHello)
-        |> Task.andThen (\_ -> Support.writeText perms (Path.append (Path.fromPosixString "outside/Outside.gren") dir) dirtyHello)
+        |> Task.andThen (\_ -> Support.writeText perms (Path.append (Path.fromPosixString "walked/Top.geng") dir) dirtyHello)
+        |> Task.andThen (\_ -> Support.writeText perms (Path.append (Path.fromPosixString "outside/Outside.geng") dir) dirtyHello)
         |> Task.andThen (\_ -> Support.makeSymlink perms { target = "../outside", link = Path.append (Path.fromPosixString "walked/Link") dir })
 
 
 readLinkedTree : Perms -> Path.Path -> Task.Task String { top : String, outside : String }
 readLinkedTree perms dir =
-    readBack perms (Path.append (Path.fromPosixString "walked/Top.gren") dir)
+    readBack perms (Path.append (Path.fromPosixString "walked/Top.geng") dir)
         |> Task.andThen
             (\top ->
-                readBack perms (Path.append (Path.fromPosixString "outside/Outside.gren") dir)
+                readBack perms (Path.append (Path.fromPosixString "outside/Outside.geng") dir)
                     |> Task.map (\outside -> { top = top, outside = outside })
             )
 
@@ -336,7 +336,7 @@ provisionSkipped perms dir =
         (\name task ->
             task
                 |> Task.andThen (\_ -> Support.makeDir perms (Path.append (Path.fromPosixString name) dir))
-                |> Task.andThen (\_ -> Support.writeText perms (Path.append (Path.fromPosixString (name ++ "/Vendored.gren")) dir) dirtyHello)
+                |> Task.andThen (\_ -> Support.writeText perms (Path.append (Path.fromPosixString (name ++ "/Vendored.geng")) dir) dirtyHello)
         )
         (Task.succeed {})
         [ ".hidden", "node_modules", "gren_packages" ]
@@ -344,13 +344,13 @@ provisionSkipped perms dir =
 
 readSkipped : Perms -> Path.Path -> Task.Task String { hidden : String, nodeModules : String, grenPackages : String }
 readSkipped perms dir =
-    readBack perms (Path.append (Path.fromPosixString ".hidden/Vendored.gren") dir)
+    readBack perms (Path.append (Path.fromPosixString ".hidden/Vendored.geng") dir)
         |> Task.andThen
             (\hidden ->
-                readBack perms (Path.append (Path.fromPosixString "node_modules/Vendored.gren") dir)
+                readBack perms (Path.append (Path.fromPosixString "node_modules/Vendored.geng") dir)
                     |> Task.andThen
                         (\nodeModules ->
-                            readBack perms (Path.append (Path.fromPosixString "gren_packages/Vendored.gren") dir)
+                            readBack perms (Path.append (Path.fromPosixString "gren_packages/Vendored.geng") dir)
                                 |> Task.map (\grenPackages -> { hidden = hidden, nodeModules = nodeModules, grenPackages = grenPackages })
                         )
             )

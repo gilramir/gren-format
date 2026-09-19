@@ -1,0 +1,43 @@
+module GengSyntaxUsage exposing (T, a, b, e, p)
+
+import Unused
+import Bytes exposing (Bytes)
+import Dict exposing (Dict)
+import Eqs exposing (Equal)
+import Hashes
+import Ords exposing (Ordered)
+import Set exposing (Set)
+import Sizes
+import AlsoUnused exposing (nothing)
+
+
+a : Equal x => x -> Bool
+a _ =
+    True
+
+
+@derive(Ordered)
+type T
+    = T
+
+
+class Show s where
+    -- a method whose context names a qualified class
+    show : Hashes.Hashable h => s -> h
+
+
+instance Show (Dict k v) where
+    show d =
+        d
+
+
+@prim("x") -- after the attribute
+p : Bytes -> Int
+
+
+@extern(js, "M", "f")
+e : Set Int -> Task x Int
+
+
+b =
+    (0 : Sizes.Small)

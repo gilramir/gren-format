@@ -1,8 +1,0 @@
-effect module EffectModule where { command = MyCmd } exposing (..)
-
-import Task
-import Unused
-
-
-type MyCmd msg
-    = MyCmd (Task.Task Never msg)

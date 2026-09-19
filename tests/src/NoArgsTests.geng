@@ -23,13 +23,13 @@ noArgsSuite perms =
         , setUp = makeScratch perms
         , tearDown = removeScratch perms
         , tests =
-            [ U.test "no gren.json exits nonzero with helpful message" <| \s ->
+            [ U.test "no geng.toml exits nonzero with helpful message" <| \s ->
                 Support.runApp perms s.appPath { cwd = Just (Path.toPosixString s.dir) } []
                     |> Task.map
                         (\r ->
                             Expect.all
                                 [ \_ -> Expect.notEqual 0 r.exitCode
-                                , \_ -> Support.expectContains "Could not find a gren.json" r.stderr
+                                , \_ -> Support.expectContains "Could not find a geng.toml" r.stderr
                                 ]
                                 {}
                         )

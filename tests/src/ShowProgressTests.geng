@@ -38,7 +38,7 @@ showProgressSuite perms =
                         (\r ->
                             Expect.all
                                 [ \_ -> Expect.equal 0 r.exitCode
-                                , \_ -> Support.expectContains "src/Hello.gren ... reformatted" r.stdout
+                                , \_ -> Support.expectContains "src/Hello.geng ... reformatted" r.stdout
                                 , \_ -> Support.expectContains "1 file reformatted" r.stdout
                                 ]
                                 {}
@@ -47,13 +47,13 @@ showProgressSuite perms =
                 Support.makeProject perms s.dir dirtyHello
                     |> Task.andThen (\_ -> runProject perms s [ "--show-progress" ])
                     |> Task.andThen (\_ -> runProject perms s [ "--show-progress" ])
-                    |> Task.map (\r -> Support.expectContains "src/Hello.gren ... already formatted" r.stdout)
+                    |> Task.map (\r -> Support.expectContains "src/Hello.geng ... already formatted" r.stdout)
             , U.test "the summary does not repeat paths the progress lines already named" <| \s ->
                 -- Without the flag the run lists every rewritten path after
                 -- the fact; with it, that list is the same names twice.
                 Support.makeProject perms s.dir dirtyHello
                     |> Task.andThen (\_ -> runProject perms s [ "--show-progress" ])
-                    |> Task.map (\r -> Expect.equal 1 (occurrences "Hello.gren" r.stdout))
+                    |> Task.map (\r -> Expect.equal 1 (occurrences "Hello.geng" r.stdout))
             , U.test "no progress lines without the flag" <| \s ->
                 Support.makeProject perms s.dir dirtyHello
                     |> Task.andThen (\_ -> runProject perms s [])
@@ -61,7 +61,7 @@ showProgressSuite perms =
             , U.test "positional paths get progress lines too" <| \s ->
                 let
                     file =
-                        Path.append (Path.fromPosixString "Hello.gren") s.dir
+                        Path.append (Path.fromPosixString "Hello.geng") s.dir
                 in
                 Support.writeText perms file dirtyHello
                     |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Nothing } [ "--show-progress", Path.toPosixString file ])
@@ -70,7 +70,7 @@ showProgressSuite perms =
                         (\res ->
                             Expect.all
                                 [ \_ -> Expect.equal 0 res.r.exitCode
-                                , \_ -> Support.expectContains (Path.toPosixString (Path.append (Path.fromPosixString "Hello.gren") s.dir) ++ " ... reformatted") res.r.stdout
+                                , \_ -> Support.expectContains (Path.toPosixString (Path.append (Path.fromPosixString "Hello.geng") s.dir) ++ " ... reformatted") res.r.stdout
                                 , \_ -> Support.expectContains "\n\n\n" res.after
                                 ]
                                 {}
@@ -78,7 +78,7 @@ showProgressSuite perms =
             , U.test "a file that does not parse closes its own line before the run stops" <| \s ->
                 let
                     file =
-                        Path.append (Path.fromPosixString "Broken.gren") s.dir
+                        Path.append (Path.fromPosixString "Broken.geng") s.dir
                 in
                 Support.writeText perms file "module Broken exposing (f)\n\n\nf =\n    ( 1\n"
                     |> Task.andThen (\_ -> Support.runApp perms s.appPath { cwd = Nothing } [ "--show-progress", Path.toPosixString file ])
@@ -86,7 +86,7 @@ showProgressSuite perms =
                         (\r ->
                             Expect.all
                                 [ \_ -> Expect.notEqual 0 r.exitCode
-                                , \_ -> Support.expectContains "Broken.gren ... parse error" r.stdout
+                                , \_ -> Support.expectContains "Broken.geng ... parse error" r.stdout
                                 , \_ -> Support.expectContains "FAILED TO PARSE" r.stderr
                                 ]
                                 {}

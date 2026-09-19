@@ -134,9 +134,12 @@ removeUnusedImports modAst ctx =
             | imports = newImports
             , docs = newDocs
             , values = shifted.values
+            , classes = shifted.classes
+            , instances = shifted.instances
             , unions = shifted.unions
             , aliases = shifted.aliases
-            , effects = shifted.effects
+            , prims = shifted.prims
+            , externs = shifted.externs
             , binops = shifted.binops
         }
     , context = { ctx | comments = Builder.fromArray newComments }
@@ -582,19 +585,14 @@ later declaration's doc from reaching the header. -}
 firstDeclarationHasDocs : Src.Module -> Bool
 firstDeclarationHasDocs modAst =
     let
-        ports =
-            when modAst.effects is
-                Src.Ports portDecls ->
-                    portDecls
-
-                _ ->
-                    []
-
         docBearing =
             Array.map declarationMarker modAst.values
+                ++ Array.map declarationMarker modAst.classes
+                ++ Array.map declarationMarker modAst.instances
                 ++ Array.map declarationMarker modAst.unions
                 ++ Array.map declarationMarker modAst.aliases
-                ++ Array.map declarationMarker ports
+                ++ Array.map declarationMarker modAst.prims
+                ++ Array.map declarationMarker modAst.externs
                 ++ Array.map (\locInfix -> { row = locInfix.start.row, hasDocs = False }) modAst.binops
     in
     docBearing
@@ -956,7 +954,10 @@ refsFromModule modAst =
     Array.foldl (\locDecl acc -> mergeRefs acc (refsFromValue locDecl.value.value)) emptyRefs modAst.values
         |> mergeRefs (Array.foldl (\locDecl acc -> mergeRefs acc (refsFromUnion locDecl.value.value)) emptyRefs modAst.unions)
         |> mergeRefs (Array.foldl (\locDecl acc -> mergeRefs acc (refsFromAlias locDecl.value.value)) emptyRefs modAst.aliases)
-        |> mergeRefs (refsFromEffects modAst.effects)
+        |> mergeRefs (Array.foldl (\locDecl acc -> mergeRefs acc (refsFromClass locDecl.value.value)) emptyRefs modAst.classes)
+        |> mergeRefs (Array.foldl (\locDecl acc -> mergeRefs acc (refsFromInstance locDecl.value.value)) emptyRefs modAst.instances)
+        |> mergeRefs (Array.foldl (\locDecl acc -> mergeRefs acc (refsFromType locDecl.value.value.signature)) emptyRefs modAst.prims)
+        |> mergeRefs (Array.foldl (\locDecl acc -> mergeRefs acc (refsFromExtern locDecl.value.value)) emptyRefs modAst.externs)
 
 
 refsFromValue : Src.Value -> Refs
@@ -970,8 +971,8 @@ refsFromValue value =
                 Nothing ->
                     emptyRefs
 
-                Just { type_ } ->
-                    refsFromType type_
+                Just { constraints, type_ } ->
+                    refsFromAnnotation { constraints = constraints, type_ = type_ }
     in
     argRefs
         |> mergeRefs (refsFromExpression value.body)
@@ -1060,6 +1061,9 @@ refsFromExpression expr =
         Src.Parens e ->
             refsFromExpression e
 
+        Src.Annotated { expression, annotation } ->
+            mergeRefs (refsFromExpression expression) (refsFromType annotation)
+
 
 refsFromDef : Src.Def -> Refs
 refsFromDef def =
@@ -1074,8 +1078,8 @@ refsFromDef def =
                         Nothing ->
                             emptyRefs
 
-                        Just typ ->
-                            refsFromType typ
+                        Just ann ->
+                            refsFromAnnotation ann
             in
             argRefs
                 |> mergeRefs (refsFromExpression body)
@@ -1171,21 +1175,53 @@ refsFromUnion union =
                 Just typ ->
                     mergeRefs acc (refsFromType typ)
         )
-        emptyRefs
+        { emptyRefs | names = Array.map .value union.derives }
         union.variants
 
 
-refsFromEffects : Src.Effects -> Refs
-refsFromEffects effects =
-    when effects is
-        Src.NoEffects ->
-            emptyRefs
+{-| A constraint names a class, qualified or not, so the import that
+exposes or qualifies it is used. -}
+refsFromConstraint : Src.Constraint -> Refs
+refsFromConstraint c =
+    when c.qualifier is
+        Just qualifier ->
+            { emptyRefs | qualifiers = [ qualifier ] }
 
-        Src.Ports ports ->
-            Array.foldl
-                (\locDecl acc -> mergeRefs acc (refsFromType locDecl.value.value.signature))
-                emptyRefs
-                ports
+        Nothing ->
+            { emptyRefs | names = [ c.class.value ] }
 
-        Src.Manager _ ->
-            emptyRefs
+
+refsFromAnnotation : Src.Annotation -> Refs
+refsFromAnnotation ann =
+    Array.foldl (\c acc -> mergeRefs acc (refsFromConstraint c)) (refsFromType ann.type_) ann.constraints
+
+
+refsFromClass : Src.Class -> Refs
+refsFromClass class_ =
+    Array.foldl (\locMethod acc -> mergeRefs acc (refsFromAnnotation locMethod.value.signature)) emptyRefs class_.methods
+
+
+{-| An instance names its class and types in its head, and its methods are
+ordinary definitions. -}
+refsFromInstance : Src.Instance -> Refs
+refsFromInstance instance_ =
+    Array.foldl
+        (\locDef acc ->
+            acc
+                |> mergeRefs (Array.foldl (\p inner -> mergeRefs inner (refsFromPattern p)) emptyRefs locDef.value.args)
+                |> mergeRefs (refsFromExpression locDef.value.body)
+        )
+        (refsFromAnnotation { constraints = instance_.constraints, type_ = instance_.head })
+        instance_.methods
+
+
+refsFromExtern : Src.Extern -> Refs
+refsFromExtern extern =
+    when extern.definition is
+        Just def ->
+            refsFromType extern.signature
+                |> mergeRefs (Array.foldl (\p acc -> mergeRefs acc (refsFromPattern p)) emptyRefs def.args)
+                |> mergeRefs (refsFromExpression def.body)
+
+        Nothing ->
+            refsFromType extern.signature

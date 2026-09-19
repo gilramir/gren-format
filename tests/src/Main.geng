@@ -21,7 +21,7 @@ cleaned up even when a test fails). Run it like the unittest CLI:
 import ChildProcess
 import DiffFlagTests exposing (diffFlagSuite)
 import FileSystem
-import Init
+import Task exposing (Task)
 import JsonFlagsTests exposing (jsonFlagsSuite)
 import NoArgsFormatTests exposing (noArgsFormatSuite)
 import NoArgsTests exposing (noArgsSuite)
@@ -33,27 +33,34 @@ import ShowProgressTests exposing (showProgressSuite)
 import Test.Runner.UnitNode as U
 
 
-main : Node.SimpleProgram a
+main : Task Never {}
 main =
-    U.runWith
-        { name = "gren-format-cli-tests"
-        , version = "1.0.0"
-        , init =
-            \done ->
-                Init.await FileSystem.initialize <| \fs ->
-                Init.await ChildProcess.initialize <| \cp ->
-                    done { fs = fs, childProcess = cp }
-        , globalSetUp = U.noFixture
-        , globalTearDown = U.noTearDown
-        , suites =
-            \perms ->
-                [ noArgsSuite perms
-                , showFlagSuite perms
-                , jsonFlagsSuite perms
-                , positionalSuite perms
-                , noArgsFormatSuite perms
-                , removeUnusedImportsFlagSuite perms
-                , showProgressSuite perms
-                , diffFlagSuite perms
-                ]
-        }
+    Node.getEnvironment
+        |> Task.andThen
+            (\env ->
+                U.runWith env
+                    { name = "gren-format-cli-tests"
+                    , version = "1.0.0"
+                    , init =
+                        FileSystem.initialize
+                            |> Task.andThen
+                                (\fs ->
+                                    ChildProcess.initialize
+                                        |> Task.map (\cp -> { fs = fs, childProcess = cp })
+                                )
+                    , fileSystem = \perms -> Just perms.fs
+                    , globalSetUp = \_ -> Task.succeed {}
+                    , globalTearDown = \_ -> Task.succeed {}
+                    , suites =
+                        \perms ->
+                            [ noArgsSuite perms
+                            , showFlagSuite perms
+                            , jsonFlagsSuite perms
+                            , positionalSuite perms
+                            , noArgsFormatSuite perms
+                            , removeUnusedImportsFlagSuite perms
+                            , showProgressSuite perms
+                            , diffFlagSuite perms
+                            ]
+                    }
+            )

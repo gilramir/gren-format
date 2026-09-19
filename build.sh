@@ -8,7 +8,7 @@ set -e
 cd "$(dirname "$0")"
 
 # package.json's "version" is the single source of truth for the version, and
-# `npm version <patch|minor|major>` is the only thing that bumps it. src/Version.gren
+# `npm version <patch|minor|major>` is the only thing that bumps it. src/Version.geng
 # -- what `gren-format --version` prints -- is GENERATED from it here, so there is
 # no second string to keep in sync and no way to publish a binary that misreports
 # its own version. The pattern must match something: an empty capture would
@@ -29,7 +29,7 @@ not bump it here.** \`npm version <patch|minor|major>\` is the only place a vers
 is bumped; \`build.sh\` regenerates this file from \`package.json\` before every
 build, so a hand edit is overwritten on the next one.
 
-It is committed rather than ignored so that a plain \`gren make Main\` works in a
+It is committed rather than ignored so that a plain \`geng make Main\` works in a
 fresh clone; \`build.sh\` rewrites it only when the version actually changed.
 
 -}
@@ -44,10 +44,20 @@ EOF
 
 # Rewrite only on a real change, so an unchanged build does not touch the file's
 # mtime and force the compiler to redo work.
-if [ "$version_module" != "$(cat src/Version.gren 2>/dev/null)" ]; then
-    printf '%s\n' "$version_module" > src/Version.gren
-    echo "build.sh: regenerated src/Version.gren for version ${pkg_version}"
+if [ "$version_module" != "$(cat src/Version.geng 2>/dev/null)" ]; then
+    printf '%s\n' "$version_module" > src/Version.geng
+    echo "build.sh: regenerated src/Version.geng for version ${pkg_version}"
 fi
 
-gren make Main
+# Built with the Geng fork beside this checkout (geng-lang's vendor/), which
+# reads this directory's geng.toml and the [sources] paths it names. It needs
+# `devbox run build` to have been run in vendor/gren-lang/compiler.
+geng_lang="$(cd ../../.. && pwd)"
+compiler="$geng_lang/vendor/gren-lang/compiler"
+if [ ! -f "$compiler/app" ]; then
+    echo "build.sh: no Geng front end at $compiler/app; run \`devbox run build\` there" >&2
+    exit 1
+fi
+PATH="$geng_lang/.devbox/nix/profile/default/bin:$PATH" GENG_BIN="$compiler/geng" \
+    node "$compiler/app" make Main --output=app
 chmod +x app
