@@ -1,14 +1,16 @@
 module Format exposing
     ( Config
     , Error(..)
+    , PathsConfig
     , Progress
     , auditPredicatesFile
     , boxFile
+    , checkPaths
+    , checkProject
     , decisionsFile
     , diffPaths
     , diffProject
     , expandPathToFiles
-    , formatFile
     , formatPaths
     , formattedCountSummary
     , lptFile
@@ -82,6 +84,7 @@ type Error
     | CheckReparseFailed { path : Path, error : String }
     | AstMismatchAfterFormat { path : Path, explanation : String }
     | NotIdempotent { path : Path, diff : String }
+    | NotFormatted (Array String)
 
 
 {-| Read a file and decode its bytes as UTF-8. Maps both an I/O error and
@@ -97,7 +100,7 @@ of a file and they need different answers:
     and cannot be answered from text the defect has been scrubbed out of.
 
 Returning only `source` is what let a CRLF file survive `formatPaths` forever:
-`formatFile` compared the formatted output against text CRLF had already been
+it compared the formatted output against text CRLF had already been
 removed from, so an otherwise-formatted CRLF file compared equal to its own
 LF output and was never rewritten. `--show` prints `\n`, and in-place has to
 land what `--show` prints, so line endings are formatting like anything else.
@@ -153,9 +156,10 @@ comes out equal to its own output and keeps its `\r`s forever -- which is the
 bug `formatPaths` had for as long as `readSource` returned only the normalized
 form and left its callers nothing else to ask.
 
-One function because all three modes that need the answer -- the project run,
-the path-argument run, and `--diff` -- have to give the same one, or `--diff`
-describes a write that does not happen.
+One function because every mode that needs the answer -- the project run, the
+path-argument run, `--diff` and `--check` -- has to give the same one, or
+`--diff` describes a write that does not happen and `--check` passes a file the
+in-place run would rewrite.
 -}
 isAlreadyFormatted : { raw : String, pretty : String } -> Bool
 isAlreadyFormatted { raw, pretty } =
@@ -504,110 +508,298 @@ errorOutcome error =
         NothingToFormat ->
             "error"
 
+        NotFormatted _ ->
+            "error"
 
-run : Config -> Task Error String
-run { fsPermission, pathToString, projectPath, outline, removeUnusedImports, progress } =
-    Outline.findSourceFiles fsPermission outline projectPath
+
+{-| One file the formatter has come out the other side of, handed to a `Mode`
+to act on.
+
+`path` is where the file is on disk, for writing it; `name` is how the run
+reports it -- relative to the project root for the project run, as typed for a
+path argument. `raw` is the bytes on disk, which is what `isAlreadyFormatted`
+has to be asked about. -}
+type alias Formatted =
+    { path : Path
+    , name : String
+    , raw : String
+    , pretty : String
+    }
+
+
+{-| What tells the in-place run, `--diff` and `--check` apart: only what each
+does with a file once it is formatted. Finding the files, reading, formatting
+and verifying them, and the progress line all belong to the walkers
+(`walkProject`, `walkPaths`), which the three modes share -- so they cannot
+disagree about which files they look at, or about which of those need
+rewriting.
+
+  - `act` runs inside the file's progress line, so an error it raises (a
+    failed write) closes that line with the error's outcome.
+  - `outcome` is what the progress line says once `act` succeeds.
+  - `after` runs once the line is closed. `--diff` prints the file's diff
+    there, so the diff follows the progress line instead of splitting it.
+-}
+type alias Mode r =
+    { act : Formatted -> Task Error r
+    , outcome : r -> String
+    , after : r -> Task Error {}
+    }
+
+
+{-| One file a walk visited, and what its mode made of it. -}
+type alias Visited r =
+    { file : Formatted
+    , result : r
+    }
+
+
+{-| Rewrite the file if formatting changes it. `True` if it was rewritten. -}
+writeMode : FileSystem.Permission -> Mode Bool
+writeMode fsPermission =
+    { act =
+        \{ path, raw, pretty } ->
+            if isAlreadyFormatted { raw = raw, pretty = pretty } then
+                Task.succeed False
+
+            else
+                atomicWrite fsPermission path pretty
+                    |> Task.map (\_ -> True)
+    , outcome = rewriteOutcome
+    , after = \_ -> Task.succeed {}
+    }
+
+
+{-| Print the file's diff instead of rewriting it. -}
+diffMode : Stream.Writable Bytes -> Mode (Maybe String)
+diffMode stdout =
+    { act = \{ name, raw, pretty } -> Task.succeed (diffOfFile { name = name, raw = raw, pretty = pretty })
+    , outcome = diffOutcome
+    , after = emitDiff stdout
+    }
+
+
+{-| Only note whether formatting would rewrite the file. `True` if it would. -}
+checkMode : Mode Bool
+checkMode =
+    { act = \{ raw, pretty } -> Task.succeed (not (isAlreadyFormatted { raw = raw, pretty = pretty }))
+    , outcome = checkOutcome
+    , after = \_ -> Task.succeed {}
+    }
+
+
+{-| Read, format and verify one file between the two halves of its progress
+line, then hand it to the mode.
+
+`reportPath` is the path error reports name, which for the project run is the
+project-relative one rather than `path`. `read` is a task rather than text
+because a path argument's file is read here, inside the progress line, so a
+read failure is that file's outcome; the project run's files arrive already
+read. -}
+visitFile :
+    Bool
+    -> Progress
+    -> Mode r
+    ->
+        { path : Path
+        , reportPath : Path
+        , name : String
+        , read : Task Error { raw : String, source : String }
+        }
+    -> Task Error (Visited r)
+visitFile removeUnusedImports progress mode file =
+    let
+        formatOne =
+            file.read
+                |> Task.andThen
+                    (\{ raw, source } ->
+                        when formatAndVerify removeUnusedImports file.reportPath source is
+                            Err err ->
+                                Task.fail err
+
+                            Ok pretty ->
+                                let
+                                    formatted =
+                                        { path = file.path, name = file.name, raw = raw, pretty = pretty }
+                                in
+                                mode.act formatted
+                                    |> Task.map (\result -> { file = formatted, result = result })
+                    )
+    in
+    withProgress progress file.name (\visited -> mode.outcome visited.result) formatOne
+        |> Task.andThen (\visited -> mode.after visited.result |> Task.map (\_ -> visited))
+
+
+{-| Visit every Gren source file of the project, in `Outline.findSourceFiles`
+order -- the file set of the no-argument run, whichever mode it is in. -}
+walkProject : Config -> Mode r -> Task Error (Array (Visited r))
+walkProject config mode =
+    Outline.findSourceFiles config.fsPermission config.outline config.projectPath
         |> Task.mapError FailedToFindSources
         |> Task.andThen
             (\files ->
                 let
-                    processFn { path, source } previous =
-                        Task.andThen
-                            (\acc ->
-                                if path.extension /= "gren" then
-                                    -- Probably kernel code
-                                    Task.succeed acc
+                    visitOne { path, source } previous =
+                        previous
+                            |> Task.andThen
+                                (\visited ->
+                                    if path.extension /= "gren" then
+                                        -- Probably kernel code
+                                        Task.succeed visited
 
-                                else
-                                    let
-                                        relPath =
-                                            pathRelativeFrom projectPath path
-
-                                        normalized =
-                                            normalizeLineEndings source
-
-                                        formatOne =
-                                            when formatAndVerify removeUnusedImports relPath normalized is
-                                                Err err ->
-                                                    Task.fail err
-
-                                                Ok pretty ->
-                                                    if isAlreadyFormatted { raw = source, pretty = pretty } then
-                                                        Task.succeed False
-
-                                                    else
-                                                        atomicWrite fsPermission path pretty
-                                                            |> Task.map (\_ -> True)
-                                    in
-                                    withProgress progress (pathToString relPath) rewriteOutcome formatOne
-                                        |> Task.map
-                                            (\wasRewritten ->
-                                                if wasRewritten then
-                                                    { acc | rewritten = Array.pushLast (pathToString path) acc.rewritten }
-
-                                                else
-                                                    { acc | skipped = acc.skipped + 1 }
-                                            )
-                            )
-                            previous
-
-                    reportedProgress =
-                        when progress is
-                            Just _ ->
-                                True
-
-                            Nothing ->
-                                False
-
-                    summarize { rewritten, skipped } =
-                        let
-                            -- With `--show-progress` every one of these paths has
-                            -- already been printed, on its own line, next to what
-                            -- happened to it; listing them again would just be the
-                            -- same names twice.
-                            paths =
-                                if not reportedProgress && Array.length rewritten > 0 then
-                                    String.join "\n" rewritten ++ "\n"
-
-                                else
-                                    ""
-                        in
-                        paths
-                            ++ formattedCountSummary
-                                { rewritten = Array.length rewritten
-                                , skipped = skipped
-                                }
+                                    else
+                                        let
+                                            relPath =
+                                                pathRelativeFrom config.projectPath path
+                                        in
+                                        visitFile config.removeUnusedImports
+                                            config.progress
+                                            mode
+                                            { path = path
+                                            , reportPath = relPath
+                                            , name = config.pathToString relPath
+                                            , read = Task.succeed { raw = source, source = normalizeLineEndings source }
+                                            }
+                                            |> Task.map (\v -> Array.pushLast v visited)
+                                )
                 in
                 if files == [] then
                     Task.fail NothingToFormat
 
                 else
-                    Array.foldl processFn (Task.succeed { rewritten = [], skipped = 0 }) files
-                        |> Task.map summarize
+                    Array.foldl visitOne (Task.succeed []) files
             )
 
 
-{-| Format a single file and overwrite it in place (atomic write).
-    Returns True if the file was rewritten, False if it was already formatted.
--}
-formatFile : { fsPermission : FileSystem.Permission, removeUnusedImports : Bool } -> Path -> Task Error Bool
-formatFile { fsPermission, removeUnusedImports } path =
-    readSource fsPermission path
-        |> Task.andThen
-            (\{ raw, source } ->
-                when formatAndVerify removeUnusedImports path source is
-                    Err err ->
-                        Task.fail err
+{-| How the path-argument run finds and formats its files, whichever mode it is
+in. -}
+type alias PathsConfig =
+    { fsPermission : FileSystem.Permission
+    , notes : Stream.Writable Bytes
+    , removeUnusedImports : Bool
+    , recurse : Bool
+    , progress : Progress
+    }
 
-                    Ok pretty ->
-                        if isAlreadyFormatted { raw = raw, pretty = pretty } then
-                            Task.succeed False
+
+{-| Visit every file reached by the given path arguments -- a directory expands
+to its Gren source files (`expandPathToFiles`, one level deep unless `recurse`),
+any other path is that file -- in argument order. -}
+walkPaths : PathsConfig -> Mode r -> Array Path -> Task Error (Array (Visited r))
+walkPaths config mode paths =
+    let
+        visitOne filePath previous =
+            previous
+                |> Task.andThen
+                    (\visited ->
+                        visitFile config.removeUnusedImports
+                            config.progress
+                            mode
+                            { path = filePath
+                            , reportPath = filePath
+                            , name = Path.toPosixString filePath
+                            , read = readSource config.fsPermission filePath
+                            }
+                            |> Task.map (\v -> Array.pushLast v visited)
+                    )
+
+        expandAndVisit path previous =
+            previous
+                |> Task.andThen
+                    (\visited ->
+                        expandPathToFiles config.fsPermission { recurse = config.recurse } path
+                            |> Task.andThen (noteSkippedLinks config.notes)
+                            |> Task.andThen (\filePaths -> Array.foldl visitOne (Task.succeed visited) filePaths)
+                    )
+    in
+    Array.foldl expandAndVisit (Task.succeed []) paths
+
+
+{-| The visited files whose result was `True` -- rewritten, or would be. -}
+changedFiles : Array (Visited Bool) -> Array Formatted
+changedFiles visited =
+    visited
+        |> Array.keepIf .result
+        |> Array.map .file
+
+
+{-| Format every source file of the project in place. Returns the run's
+summary: the rewritten paths (unless `--show-progress` already named them), then
+`formattedCountSummary`. -}
+run : Config -> Task Error String
+run config =
+    walkProject config (writeMode config.fsPermission)
+        |> Task.map
+            (\visited ->
+                let
+                    rewritten =
+                        changedFiles visited
+                            |> Array.map (\file -> config.pathToString file.path)
+
+                    -- With `--show-progress` every one of these paths has
+                    -- already been printed, on its own line, next to what
+                    -- happened to it; listing them again would just be the
+                    -- same names twice.
+                    paths =
+                        if config.progress == Nothing && Array.length rewritten > 0 then
+                            String.join "\n" rewritten ++ "\n"
 
                         else
-                            atomicWrite fsPermission path pretty
-                                |> Task.map (\_ -> True)
+                            ""
+                in
+                paths
+                    ++ formattedCountSummary
+                        { rewritten = Array.length rewritten
+                        , skipped = Array.length visited - Array.length rewritten
+                        }
             )
+
+
+{-| Format every file reached by the given path arguments, overwriting each in
+place. Returns how many were rewritten vs. already formatted. -}
+formatPaths : PathsConfig -> Array Path -> Task Error { rewritten : Int, skipped : Int }
+formatPaths config paths =
+    walkPaths config (writeMode config.fsPermission) paths
+        |> Task.map
+            (\visited ->
+                let
+                    rewritten =
+                        Array.length (changedFiles visited)
+                in
+                { rewritten = rewritten, skipped = Array.length visited - rewritten }
+            )
+
+
+{-| `--diff` for path arguments: the file set `formatPaths` would rewrite, each
+one's unified diff printed instead. -}
+diffPaths : Stream.Writable Bytes -> PathsConfig -> Array Path -> Task Error {}
+diffPaths stdout config paths =
+    walkPaths config (diffMode stdout) paths
+        |> Task.map (\_ -> {})
+
+
+{-| `--diff` for the no-argument project run: the file set `run` would rewrite,
+each one's unified diff printed instead. -}
+diffProject : Config -> Task Error {}
+diffProject config =
+    walkProject config (diffMode config.stdout)
+        |> Task.map (\_ -> {})
+
+
+{-| `--check` for path arguments: the file set `formatPaths` would rewrite, and
+only whether any of them would be. Writes nothing. -}
+checkPaths : PathsConfig -> Array Path -> Task Error String
+checkPaths config paths =
+    walkPaths config checkMode paths
+        |> Task.andThen checkVerdict
+
+
+{-| `--check` for the no-argument project run: the file set `run` would
+rewrite, and only whether any of them would be. Writes nothing. -}
+checkProject : Config -> Task Error String
+checkProject config =
+    walkProject config checkMode
+        |> Task.andThen checkVerdict
 
 
 {-| The line both in-place modes end with: `2 files reformatted, 1 file already
@@ -631,45 +823,6 @@ fileCount n =
             else
                 " files"
            )
-
-
-{-| Format every file reached by the given path arguments — a directory expands
-to its Gren source files (`expandPathToFiles`, one level deep unless `recurse`),
-any other path is that file — overwriting each in place. Returns how many were
-rewritten vs. already formatted. -}
-formatPaths : { fsPermission : FileSystem.Permission, notes : Stream.Writable Bytes, removeUnusedImports : Bool, recurse : Bool, progress : Progress } -> Array Path -> Task Error { rewritten : Int, skipped : Int }
-formatPaths config paths =
-    let
-        fileConfig =
-            { fsPermission = config.fsPermission
-            , removeUnusedImports = config.removeUnusedImports
-            }
-
-        formatOne filePath innerTask =
-            innerTask
-                |> Task.andThen
-                    (\counts ->
-                        withProgress config.progress (Path.toPosixString filePath) rewriteOutcome (formatFile fileConfig filePath)
-                            |> Task.map
-                                (\wasRewritten ->
-                                    if wasRewritten then
-                                        { counts | rewritten = counts.rewritten + 1 }
-
-                                    else
-                                        { counts | skipped = counts.skipped + 1 }
-                                )
-                    )
-
-        expandAndFormat path outerTask =
-            outerTask
-                |> Task.andThen
-                    (\counts ->
-                        expandPathToFiles config.fsPermission { recurse = config.recurse } path
-                            |> Task.andThen (noteSkippedLinks config.notes)
-                            |> Task.andThen (\filePaths -> Array.foldl formatOne (Task.succeed counts) filePaths)
-                    )
-    in
-    Array.foldl expandAndFormat (Task.succeed { rewritten = 0, skipped = 0 }) paths
 
 
 {-| Split a whole file's contents into its lines. A file that ends in a newline
@@ -730,9 +883,9 @@ for the no-argument run, as typed for a path argument. The header names the
 original `<name>.orig`, a file that does not exist, so that the diff applies to
 `<name>` itself.
 
-`raw` is the bytes on disk. Both callers hand over the same thing and ask
-`isAlreadyFormatted` the same question their in-place counterparts ask, which
-is what keeps `--diff` from ever describing a write that would not happen. -}
+`raw` is the bytes on disk, and this asks `isAlreadyFormatted` the same
+question `writeMode` asks before writing, which is what keeps `--diff` from ever
+describing a write that would not happen. -}
 diffOfFile : { name : String, raw : String, pretty : String } -> Maybe String
 diffOfFile { name, raw, pretty } =
     if isAlreadyFormatted { raw = raw, pretty = pretty } then
@@ -785,110 +938,32 @@ emitDiff stdout maybeDiff =
             Stream.Log.line stdout text
 
 
-{-| Read and format a single file without writing it, returning the diff of what
-formatting would change (`Nothing` if it would change nothing). -}
-diffFile : { fsPermission : FileSystem.Permission, removeUnusedImports : Bool } -> String -> Path -> Task Error (Maybe String)
-diffFile { fsPermission, removeUnusedImports } name path =
-    readSource fsPermission path
-        |> Task.andThen
-            (\{ raw, source } ->
-                when formatAndVerify removeUnusedImports path source is
-                    Err err ->
-                        Task.fail err
+{-| The outcome of a file in a `--check` run. Like `--diff`, nothing is
+rewritten, so the progress line says what *would* happen. -}
+checkOutcome : Bool -> String
+checkOutcome wouldReformat =
+    if wouldReformat then
+        "would reformat"
 
-                    Ok pretty ->
-                        Task.succeed (diffOfFile { name = name, raw = raw, pretty = pretty })
-            )
+    else
+        "already formatted"
 
 
-{-| `--diff` for path arguments: the same file set `formatPaths` would rewrite --
-a directory expands to its Gren source files, one level deep unless `recurse`,
-and any other path is that file -- but print each one's unified diff instead of
-overwriting it. -}
-diffPaths :
-    { stdout : Stream.Writable Bytes
-    , notes : Stream.Writable Bytes
-    , fsPermission : FileSystem.Permission
-    , removeUnusedImports : Bool
-    , recurse : Bool
-    , progress : Progress
-    }
-    -> Array Path
-    -> Task Error {}
-diffPaths config paths =
+{-| The end of a `--check` run: succeed with `N files already formatted.` when
+nothing would be rewritten, otherwise fail with `NotFormatted`, naming every
+file that would be -- the whole run, not just the first one found, so a CI log
+lists everything there is to fix. -}
+checkVerdict : Array (Visited Bool) -> Task Error String
+checkVerdict visited =
     let
-        fileConfig =
-            { fsPermission = config.fsPermission
-            , removeUnusedImports = config.removeUnusedImports
-            }
-
-        diffOne filePath innerTask =
-            innerTask
-                |> Task.andThen
-                    (\_ ->
-                        let
-                            name =
-                                Path.toPosixString filePath
-                        in
-                        withProgress config.progress name diffOutcome (diffFile fileConfig name filePath)
-                            |> Task.andThen (emitDiff config.stdout)
-                    )
-
-        expandAndDiff path outerTask =
-            outerTask
-                |> Task.andThen
-                    (\_ ->
-                        expandPathToFiles config.fsPermission { recurse = config.recurse } path
-                            |> Task.andThen (noteSkippedLinks config.notes)
-                            |> Task.andThen (\filePaths -> Array.foldl diffOne (Task.succeed {}) filePaths)
-                    )
+        unformatted =
+            changedFiles visited
     in
-    Array.foldl expandAndDiff (Task.succeed {}) paths
+    if Array.isEmpty unformatted then
+        Task.succeed (fileCount (Array.length visited) ++ " already formatted.")
 
-
-{-| `--diff` for the no-argument project run: the same file set `run` would
-rewrite, but print each one's unified diff instead of overwriting it. -}
-diffProject : Config -> Task Error {}
-diffProject { stdout, fsPermission, pathToString, projectPath, outline, removeUnusedImports, progress } =
-    Outline.findSourceFiles fsPermission outline projectPath
-        |> Task.mapError FailedToFindSources
-        |> Task.andThen
-            (\files ->
-                let
-                    processFn { path, source } previous =
-                        Task.andThen
-                            (\_ ->
-                                if path.extension /= "gren" then
-                                    -- Probably kernel code
-                                    Task.succeed {}
-
-                                else
-                                    let
-                                        relPath =
-                                            pathRelativeFrom projectPath path
-
-                                        name =
-                                            pathToString relPath
-
-                                        diffOne =
-                                            when formatAndVerify removeUnusedImports relPath (normalizeLineEndings source) is
-                                                Err err ->
-                                                    Task.fail err
-
-                                                Ok pretty ->
-                                                    Task.succeed (diffOfFile { name = name, raw = source, pretty = pretty })
-                                    in
-                                    withProgress progress name diffOutcome diffOne
-                                        |> Task.andThen (emitDiff stdout)
-                            )
-                            previous
-                in
-                if files == [] then
-                    Task.fail NothingToFormat
-
-                else
-                    Array.foldl processFn (Task.succeed {}) files
-            )
+    else
+        Task.fail (NotFormatted (Array.map .name unformatted))
 
 
 showFile : { stdout : Stream.Writable Bytes, fsPermission : FileSystem.Permission, removeUnusedImports : Bool } -> Path -> Task Error {}
@@ -1310,6 +1385,18 @@ prettifyError error =
                 "COULD NOT READ FILE"
                 (Just path)
                 (PP.words message)
+
+        NotFormatted paths ->
+            Report.create
+                "THESE FILES ARE NOT FORMATTED"
+                Nothing
+                (PP.verticalBlock
+                    [ PP.verticalBlock (Array.map PP.text paths)
+                        |> PP.indent
+                    , PP.empty
+                    , PP.words "Run gren-format to format them."
+                    ]
+                )
 
         CheckReparseFailed { path, error = message } ->
             Report.create

@@ -1,0 +1,223 @@
+module CheckFlagTests exposing (checkFlagSuite)
+
+{-| CLI integration tests for `--check`: say whether formatting would change any
+file, write nothing, and exit non-zero if it would.
+
+Like `--diff`, `--check` stands in for an in-place run, so the property under
+test is that the two never disagree -- same file set, same verdict per file. It
+reads its files through both of the ways `gren-format` finds them (a project run
+and path arguments), which are separate code paths in `Format.gren`, so each is
+covered on its own.
+
+@docs checkFlagSuite
+-}
+
+import Expect
+import FileSystem.Path as Path
+import Support exposing (Perms, dirtyHello, makeScratch, readBack, removeScratch)
+import Task
+import Test.Runner.UnitNode as U
+
+
+{-| -}
+checkFlagSuite : Perms -> U.Suite
+checkFlagSuite perms =
+    U.suite
+        { name = "CheckFlag"
+        , setUpSuite = Support.locateApp perms
+        , tearDownSuite = U.noTearDown
+        , setUp = makeScratch perms
+        , tearDown = removeScratch perms
+        , tests =
+            [ U.test "a dirty project fails, names the file, and leaves it alone" <| \s ->
+                let
+                    srcFile =
+                        Path.append (Path.fromPosixString "src/Hello.gren") s.dir
+                in
+                Support.makeProject perms s.dir dirtyHello
+                    |> Task.andThen (\_ -> run perms s [ "--check" ])
+                    |> Task.andThen (\r -> readBack perms srcFile |> Task.map (\after -> { r = r, after = after }))
+                    |> Task.map
+                        (\res ->
+                            Expect.all
+                                [ \_ -> Expect.equal 1 res.r.exitCode
+                                , \_ -> Support.expectContains "THESE FILES ARE NOT FORMATTED" res.r.stderr
+                                , \_ -> Support.expectContains "src/Hello.gren" res.r.stderr
+                                , \_ -> Support.expectContains "Run gren-format to format them." res.r.stderr
+                                , -- nothing was written
+                                  \_ -> Expect.equal dirtyHello res.after
+                                ]
+                                {}
+                        )
+            , U.test "an already formatted project succeeds and says so" <| \s ->
+                -- Format in place first rather than hard-coding the
+                -- formatter's output, so the fixture cannot go stale.
+                Support.makeProject perms s.dir dirtyHello
+                    |> Task.andThen (\_ -> run perms s [])
+                    |> Task.andThen (\_ -> run perms s [ "--check" ])
+                    |> Task.map
+                        (\r ->
+                            Expect.all
+                                [ \_ -> Expect.equal 0 r.exitCode
+                                , \_ -> Expect.equal "1 file already formatted.\n" r.stdout
+                                ]
+                                {}
+                        )
+            , U.test "only the files the in-place run would rewrite are listed" <| \s ->
+                -- Two files, one already formatted: the clean one must not
+                -- be listed, and the dirty one must.
+                Support.makeProject perms s.dir dirtyHello
+                    |> Task.andThen (\_ -> run perms s [])
+                    |> Task.andThen
+                        (\_ ->
+                            Support.writeText perms
+                                (Path.append (Path.fromPosixString "src/Other.gren") s.dir)
+                                "module Other exposing (y)\ny : Int\ny =\n    2\n"
+                        )
+                    |> Task.andThen (\_ -> run perms s [ "--check" ])
+                    |> Task.map
+                        (\r ->
+                            Expect.all
+                                [ \_ -> Expect.equal 1 r.exitCode
+                                , \_ -> Support.expectContains "src/Other.gren" r.stderr
+                                , \_ -> Support.expectNotContains "src/Hello.gren" r.stderr
+                                ]
+                                {}
+                        )
+            , U.test "a named file is checked and not written" <| \s ->
+                let
+                    srcFile =
+                        Path.append (Path.fromPosixString "src/Hello.gren") s.dir
+                in
+                Support.makeProject perms s.dir dirtyHello
+                    |> Task.andThen (\_ -> run perms s [ "--check", "src/Hello.gren" ])
+                    |> Task.andThen (\r -> readBack perms srcFile |> Task.map (\after -> { r = r, after = after }))
+                    |> Task.map
+                        (\res ->
+                            Expect.all
+                                [ \_ -> Expect.equal 1 res.r.exitCode
+                                , \_ -> Support.expectContains "src/Hello.gren" res.r.stderr
+                                , \_ -> Expect.equal dirtyHello res.after
+                                ]
+                                {}
+                        )
+            , U.test "a formatted directory argument succeeds with its count" <| \s ->
+                Support.makeProject perms s.dir dirtyHello
+                    |> Task.andThen (\_ -> run perms s [ "src" ])
+                    |> Task.andThen (\_ -> run perms s [ "--check", "src" ])
+                    |> Task.map
+                        (\r ->
+                            Expect.all
+                                [ \_ -> Expect.equal 0 r.exitCode
+                                , \_ -> Expect.equal "1 file already formatted.\n" r.stdout
+                                ]
+                                {}
+                        )
+            , U.test "a CRLF-only difference fails the check, as the in-place run rewrites it" <| \s ->
+                let
+                    srcFile =
+                        Path.append (Path.fromPosixString "src/Hello.gren") s.dir
+                in
+                Support.makeProject perms s.dir dirtyHello
+                    |> Task.andThen (\_ -> run perms s [])
+                    |> Task.andThen (\_ -> readBack perms srcFile)
+                    |> Task.andThen (\lf -> Support.writeText perms srcFile (String.replace "\n" "\r\n" lf))
+                    |> Task.andThen (\_ -> run perms s [ "--check" ])
+                    |> Task.map
+                        (\r ->
+                            Expect.all
+                                [ \_ -> Expect.equal 1 r.exitCode
+                                , \_ -> Support.expectContains "src/Hello.gren" r.stderr
+                                ]
+                                {}
+                        )
+            , U.test "--remove-unused-imports is honoured" <| \s ->
+                -- Formatted apart from the unused import: clean without the
+                -- flag, dirty with it.
+                Support.makeProject perms s.dir "module Hello exposing (x)\n\nimport Dict\n\n\nx : Int\nx =\n    1\n"
+                    |> Task.andThen (\_ -> run perms s [])
+                    |> Task.andThen
+                        (\_ ->
+                            run perms s [ "--check" ]
+                                |> Task.andThen
+                                    (\plain ->
+                                        run perms s [ "--check", "--remove-unused-imports" ]
+                                            |> Task.map (\rui -> { plain = plain, rui = rui })
+                                    )
+                        )
+                    |> Task.map
+                        (\res ->
+                            Expect.all
+                                [ \_ -> Expect.equal 0 res.plain.exitCode
+                                , \_ -> Expect.equal 1 res.rui.exitCode
+                                , \_ -> Support.expectContains "src/Hello.gren" res.rui.stderr
+                                ]
+                                {}
+                        )
+            , U.test "--show-progress reports what would happen" <| \s ->
+                Support.makeProject perms s.dir dirtyHello
+                    |> Task.andThen (\_ -> run perms s [ "--check", "--show-progress" ])
+                    |> Task.map
+                        (\r ->
+                            Expect.all
+                                [ \_ -> Expect.equal 1 r.exitCode
+                                , \_ -> Support.expectContains "src/Hello.gren ... would reformat" r.stdout
+                                ]
+                                {}
+                        )
+            , U.test "combining --check with --diff is an error" <| \s ->
+                Support.makeProject perms s.dir dirtyHello
+                    |> Task.andThen (\_ -> run perms s [ "--check", "--diff" ])
+                    |> Task.map
+                        (\r ->
+                            Expect.all
+                                [ \_ -> Expect.equal 1 r.exitCode
+                                , \_ -> Support.expectContains "Cannot combine --check with --diff" r.stderr
+                                ]
+                                {}
+                        )
+            , U.test "combining --check with a single-file inspection flag is an error" <| \s ->
+                Support.makeProject perms s.dir dirtyHello
+                    |> Task.andThen (\_ -> run perms s [ "--check", "--show", "src/Hello.gren" ])
+                    |> Task.map
+                        (\r ->
+                            Expect.all
+                                [ \_ -> Expect.equal 1 r.exitCode
+                                , \_ -> Support.expectContains "Cannot combine --check" r.stderr
+                                ]
+                                {}
+                        )
+            , U.test "a named file that does not exist fails the run" <| \s ->
+                Support.makeProject perms s.dir dirtyHello
+                    |> Task.andThen (\_ -> run perms s [ "--check", "src/Missing.gren" ])
+                    |> Task.map
+                        (\r ->
+                            Expect.all
+                                [ \_ -> Expect.equal 1 r.exitCode
+                                , \_ -> Support.expectContains "COULD NOT READ FILE" r.stderr
+                                , \_ -> Support.expectContains "src/Missing.gren" r.stderr
+                                , -- a read failure is not a verdict: it must not
+                                  -- pass for "already formatted"
+                                  \_ -> Support.expectNotContains "already formatted" r.stdout
+                                ]
+                                {}
+                        )
+            , U.test "a file that does not parse fails the run" <| \s ->
+                Support.makeProject perms s.dir "module Hello exposing (x)\n\nx = = =\n"
+                    |> Task.andThen (\_ -> run perms s [ "--check" ])
+                    |> Task.map
+                        (\r ->
+                            Expect.all
+                                [ \_ -> Expect.equal 1 r.exitCode
+                                , \_ -> Support.expectContains "FAILED TO PARSE" r.stderr
+                                ]
+                                {}
+                        )
+            ]
+        }
+
+
+{-| Run the app with the scratch project as its working directory. -}
+run : Perms -> Support.Scratch -> Array String -> Task.Task String Support.RunResult
+run perms s args =
+    Support.runApp perms s.appPath { cwd = Just (Path.toPosixString s.dir) } args

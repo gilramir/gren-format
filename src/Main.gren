@@ -27,6 +27,7 @@ import Version
 
 type alias FormatFlags =
     { files : Array Path
+    , check : Bool
     , diff : Bool
     , recurse : Bool
     , removeUnusedImports : Bool
@@ -62,8 +63,9 @@ command =
             }
     , flags =
         AP.initFlags
-            (\diff recurse removeUnusedImports showProgress show showFirst preAst preContext postAst postContext lpt rt box auditPredicates decisions version ->
+            (\check diff recurse removeUnusedImports showProgress show showFirst preAst preContext postAst postContext lpt rt box auditPredicates decisions version ->
                 { files = []
+                , check = check
                 , diff = diff
                 , recurse = recurse
                 , removeUnusedImports = removeUnusedImports
@@ -82,6 +84,7 @@ command =
                 , version = version
                 }
             )
+            |> AP.toggle (AP.LongOnly "check") "Report whether formatting would change any file, without modifying any; exits non-zero if it would"
             |> AP.toggle (AP.Both { long = "diff", short = "d" }) "Print a unified diff of what formatting would change, without modifying any file"
             |> AP.toggle (AP.Both { long = "recurse", short = "r" }) "With a directory argument, also format the Gren sources in its subdirectories (skipping symlinks, dotted directories, node_modules and gren_packages)"
             |> AP.toggle (AP.LongOnly "remove-unused-imports") "Remove unused imports while formatting"
@@ -159,10 +162,11 @@ onCommand env context flags =
         progress =
             progressStream env flags
 
-        diffConfig =
-            { stdout = env.stdout
+        -- How the path-argument run finds and formats its files; shared by
+        -- the in-place, `--diff` and `--check` forms of it.
+        pathsConfig =
+            { fsPermission = context.fs
             , notes = env.stderr
-            , fsPermission = context.fs
             , removeUnusedImports = flags.removeUnusedImports
             , recurse = flags.recurse
             , progress = progress
@@ -174,6 +178,12 @@ onCommand env context flags =
         -- in `--help` and lets it work in any position. Both paths print this.
         Stream.Log.line env.stdout Version.version
             |> Task.map (\_ -> {})
+
+    else if flags.check && flags.diff then
+        Task.fail (Program.ExitMessage "Cannot combine --check with --diff. Use --help for options.")
+
+    else if flags.check && anyFlagSet then
+        Task.fail (Program.ExitMessage "Cannot combine --check with the single-file inspection flags. Use --help for options.")
 
     else if flags.diff && anyFlagSet then
         Task.fail (Program.ExitMessage "Cannot combine --diff with the single-file inspection flags. Use --help for options.")
@@ -190,12 +200,18 @@ onCommand env context flags =
         if anyFlagSet then
             Task.fail (Program.ExitMessage "Cannot combine file path arguments with flags. Use --help for options.")
 
+        else if flags.check then
+            Format.checkPaths pathsConfig flags.files
+                |> Task.mapError (\err -> Program.ExitMessage (reportToString context.useColor (Format.prettifyError err)))
+                |> Task.andThen (\summary -> Stream.Log.line env.stdout summary)
+                |> Task.map (\_ -> {})
+
         else if flags.diff then
-            Format.diffPaths diffConfig flags.files
+            Format.diffPaths env.stdout pathsConfig flags.files
                 |> Task.mapError (\err -> Program.ExitMessage (reportToString context.useColor (Format.prettifyError err)))
 
         else
-            Format.formatPaths { fsPermission = context.fs, notes = env.stderr, removeUnusedImports = flags.removeUnusedImports, recurse = flags.recurse, progress = progress } flags.files
+            Format.formatPaths pathsConfig flags.files
                 |> Task.mapError (\err -> Program.ExitMessage (reportToString context.useColor (Format.prettifyError err)))
                 |> Task.andThen
                     (\{ rewritten, skipped } ->
@@ -203,6 +219,11 @@ onCommand env context flags =
                             (Format.formattedCountSummary { rewritten = rewritten, skipped = skipped })
                     )
                 |> Task.map (\_ -> {})
+
+    else if flags.check then
+        projectTask env context flags Format.checkProject
+            |> Task.andThen (\summary -> Stream.Log.line env.stdout summary)
+            |> Task.map (\_ -> {})
 
     else if flags.diff then
         projectTask env context flags Format.diffProject
@@ -264,7 +285,8 @@ progressStream env flags =
 {-| The shared front half of the whole-project modes: locate the project's
 `gren.json`, build the run's `Format.Config`, and hand it to whichever of them
 was asked for -- `Format.run` to rewrite the files, `Format.diffProject` to
-print what rewriting them would change. -}
+print what rewriting them would change, `Format.checkProject` to say whether it
+would change anything. -}
 projectTask : Node.Environment -> Context -> FormatFlags -> (Format.Config -> Task Format.Error a) -> Task Program.Failure a
 projectTask env context flags op =
     ProjectOutline.readProjectOutline context.fs

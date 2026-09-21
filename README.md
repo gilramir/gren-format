@@ -169,6 +169,13 @@ gren-format --diff
 gren-format --diff src/Main.gren src/Util.gren
 ```
 
+Fail if anything would change (for CI), without changing anything:
+
+```
+gren-format --check
+gren-format --check src/
+```
+
 Remove unused imports while formatting:
 
 ```
@@ -276,6 +283,38 @@ $ gren-format --diff --show-progress > changes.patch
 src/Main.gren ... would reformat
 src/Util.gren ... already formatted
 ```
+
+## Checking formatting with `--check`
+
+`--check` is the CI form of the dry run. It looks at the same files an in-place
+run would rewrite (the whole project with no arguments, or the paths you name,
+honouring `--recurse` and `--remove-unused-imports`), writes nothing, and only
+says whether any of them would change.
+
+When nothing would, it succeeds:
+
+```
+$ gren-format --check
+12 files already formatted.
+```
+
+When something would, it exits 1 with the list on stderr:
+
+```
+$ gren-format --check
+-- THESE FILES ARE NOT FORMATTED-----------------------------------------------
+
+    src/Main.gren
+    src/Util.gren
+
+Run gren-format to format them.
+```
+
+It uses the same test the in-place run does, so a CRLF-only file fails the
+check too. A file that doesn't parse fails the run with its parse error, as it
+would in place. `--check` combines with `--show-progress` (each file reports
+`would reformat` or `already formatted`), but not with `--diff` or the
+single-file debug flags.
 
 ## Removing unused import statements
 
@@ -407,8 +446,8 @@ These flags operate on a single file and write to stdout instead of disk:
 | `--box <file>` | Print the `Box` tree — the render plan — as JSON |
 
 `--show` respects `--remove-unused-imports`. The other debug flags operate
-on the raw AST and do not. None of them can be combined with `--diff`, which
-works on whole file sets rather than a single named file.
+on the raw AST and do not. None of them can be combined with `--diff` or
+`--check`, which work on whole file sets rather than a single named file.
 
 ## Getting help / reporting bugs
 

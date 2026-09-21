@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`--check`** — a dry run that only gives a verdict, for CI. It reads the
+  same files an in-place run would (the project, or the named paths, with
+  `--recurse` and `--remove-unused-imports` honoured) and writes nothing. If
+  every file is already formatted it prints `N files already formatted.` and
+  exits 0; otherwise it exits 1 with a `THESE FILES ARE NOT FORMATTED` report
+  listing every file that would be rewritten, followed by `Run gren-format to
+  format them.` Cannot be combined with `--diff` or the single-file debug
+  flags.
+
 ## [1.3.0] - 2026-09-04
 
 ### Added

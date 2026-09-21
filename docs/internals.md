@@ -27,23 +27,26 @@ order:
 
 1. **Positional path args present** → format those files/directories in place
    (`Format.formatPaths`), or, under `--diff`, print what formatting them would
-   change (`Format.diffPaths`). Combining path args with a single-file debug
+   change (`Format.diffPaths`), or, under `--check`, only say whether it would
+   (`Format.checkPaths`). Combining path args with a single-file debug
    flag is an error.
 2. **A single-file debug flag set** → run it (priority order below). The flags
    are folded to the first one set via a `Maybe (Task …)` list.
 3. **Neither** → `formatProject` formats every source file in the project in
    place, or, under `--diff`, `Format.diffProject` prints what formatting them
-   would change (both need a `gren.json` in the cwd or a parent).
+   would change, or, under `--check`, `Format.checkProject` says whether it
+   would (all need a `gren.json` in the cwd or a parent).
 
 `projectTask` is the shared front half of the two whole-project modes: it
-locates the project, builds the run's `Format.Config`, and hands it to either
-`Format.run` or `Format.diffProject`.
+locates the project, builds the run's `Format.Config`, and hands it to
+`Format.run`, `Format.diffProject` or `Format.checkProject`.
 
 `FormatFlags` fields:
 
 | Field | Flag | Effect |
 |---|---|---|
 | `files` | *(positional)* | Files/directories to format in place |
+| `check` | `--check` | Say whether formatting would change any file; write nothing; exit 1 listing the files if it would |
 | `diff` | `--diff`, `-d` | Print a unified diff of what formatting would change; write nothing |
 | `removeUnusedImports` | `--remove-unused-imports` | Also strip unused imports while formatting |
 | `showProgress` | `--show-progress` | Print each file's path before formatting it, and its outcome on the same line (in-place modes only) |
@@ -61,12 +64,25 @@ locates the project, builds the run's `Format.Config`, and hands it to either
 
 ## `Format.gren`
 
-The `run` function is the whole-project path: finds source files via
-`Outline.findSourceFiles`, then formats and atomically overwrites each changed
-file. `formatPaths` does the same for explicit path arguments. `diffProject` and
-`diffPaths` mirror those two exactly, printing each file's diff instead of
-overwriting it (see [`--diff`](#--diff) below). All operations
-share three helpers — `readSource` (read + UTF-8 decode, returning **both** the
+There are two ways to find the files and three things to do with each one, and
+the code is split along those two axes rather than written out six times:
+
+- **Walkers** — `walkProject` (the no-argument run: `Outline.findSourceFiles`,
+  names relative to the project root) and `walkPaths` (path arguments:
+  `expandPathToFiles`, names as typed, symlinks noted on stderr). Both hand each
+  file to `visitFile`, which reads it if needed, runs `formatAndVerify`, and
+  wraps all of it in the `--show-progress` line.
+- **`Mode`** — what to do with a formatted file: `writeMode` (atomically
+  overwrite it if it changed), `diffMode` (print its diff; see
+  [`--diff`](#--diff)) or `checkMode` (only note whether it would change; see
+  [`--check`](#--check)). A mode is `act` (runs inside the progress line),
+  `outcome` (what that line says) and `after` (runs once the line is closed).
+
+The exported entry points are one walker × one mode plus a summary: `run` /
+`formatPaths`, `diffProject` / `diffPaths`, `checkProject` / `checkPaths`.
+Because all six share a walker and a predicate, a mode cannot look at a
+different file set from the in-place run, or disagree with it about a file.
+All operations share three helpers — `readSource` (read + UTF-8 decode, returning **both** the
 raw bytes and the CRLF-normalized `source`), `parseModule` (parse to AST + parse
 context, taking the error constructor), and `isAlreadyFormatted` — and the
 format core:
@@ -81,7 +97,7 @@ format core:
 
 "Is this file already, byte for byte, what we would write?" is a question about
 the disk, so it has to be asked of the raw bytes. `readSource` used to return
-only the normalized text, which left `formatFile` nothing else to compare
+only the normalized text, which left the path-argument run nothing else to compare
 against — so a CRLF-but-otherwise-formatted file came out equal to its own LF
 output and `gren-format <path>` never rewrote it, while the no-argument run on
 the same bytes did. `--show` prints `\n` and in-place has to land what `--show`
@@ -89,8 +105,8 @@ prints, so that was a bug in the path-argument mode, not a defensible
 difference between two modes.
 
 `readSource` now returns `{ raw, source }`: `source` is normalized and is what
-gets parsed; `raw` exists only to answer that one question. All three modes that
-need the answer — `run`, `formatFile`, and `diffOfFile` — call the single
+gets parsed; `raw` exists only to answer that one question. Every mode that
+needs the answer — `writeMode`, `checkMode`, and `diffOfFile` — calls the single
 `isAlreadyFormatted` predicate, whose parameter is named `raw`, so handing it
 normalized text is visible at the call site rather than silent.
 
@@ -154,8 +170,8 @@ Two details are load-bearing:
 - **`contentLines` drops the phantom last line.** A file ending in a newline has
   no empty final line, but `String.split "\n"` invents one; without this, every
   hunk that reached the end of a file ended in a spurious blank context line.
-- **`diffOfFile` asks `isAlreadyFormatted`**, the same predicate the two
-  in-place modes ask, against the same string (the raw bytes on disk). That is
+- **`diffOfFile` asks `isAlreadyFormatted`**, the same predicate
+  `writeMode` asks, against the same string (the raw bytes on disk). That is
   what keeps `--diff` from ever describing a write that would not happen.
 
 A file that would be rewritten but whose line diff is empty — CRLF endings, or a
@@ -168,6 +184,23 @@ nothing for a file the very next in-place run would rewrite.
 real failure (unreadable file, parse error, a formatter check) exits nonzero.
 Under `--show-progress`, progress goes to **stderr** rather than stdout, so
 stdout stays a diff that can be piped into `patch`.
+
+### `--check`
+
+`checkProject` and `checkPaths` walk the same file sets as `run` and
+`formatPaths` and run the same `formatAndVerify`, then ask `isAlreadyFormatted`
+of the raw bytes -- the predicate the in-place modes ask before writing, so
+`--check` fails exactly when the next in-place run would rewrite something
+(CRLF-only files included). No diff is computed.
+
+Every file is checked before the verdict, so the failure names all of them, not
+just the first. `checkVerdict` either succeeds with `N files already formatted.`
+(printed to stdout by `Main`) or fails with `NotFormatted paths`, which
+`prettifyError` renders as the `THESE FILES ARE NOT FORMATTED` report ending in
+`Run gren-format to format them.` -- on stderr, exit 1, like every other
+`Format.Error`. A parse or formatter error still stops the run at that file,
+as it does in place. Under `--show-progress` the outcome is `would reformat`,
+on stdout (unlike `--diff`, stdout carries nothing else that must stay clean).
 
 ## `RemoveUnusedImports.gren`
 
