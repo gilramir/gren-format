@@ -18,6 +18,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   format them.` Cannot be combined with `--diff` or the single-file debug
   flags.
 
+### Changed
+
+- **`gren-format` is 2.5–6× faster: it is now built with `--optimize`.** It
+  used to ship as a debug build, where every `Char` is a boxed `String` object
+  and every comparison of one goes through structural equality. That is the
+  inner loop of the parser. Formatting a 232 KB module now takes 0.8 s, down
+  from 2.1 s; a 365 KB generated data file takes 0.7 s, down from 4.2 s.
+  Output is unchanged: `--show` and every debug flag print the same bytes as
+  before.
+
 ## [1.3.0] - 2026-09-04
 
 ### Added

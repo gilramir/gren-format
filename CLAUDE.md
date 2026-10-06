@@ -10,7 +10,7 @@ The formatting logic is *not* here — it is entirely in
 ## Build & run
 
 ```bash
-cd gren-format && ./build.sh     # wraps `devbox run build` (== `gren make Main`)
+cd gren-format && ./build.sh     # `gren make Main --optimize`, like `devbox run build`
 
 node app --show MyFile.gren      # one file to stdout, with all checks
 ./app                            # format the whole project in place

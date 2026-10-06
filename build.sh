@@ -49,5 +49,9 @@ if [ "$version_module" != "$(cat src/Version.gren 2>/dev/null)" ]; then
     echo "build.sh: regenerated src/Version.gren for version ${pkg_version}"
 fi
 
-gren make Main
+# --optimize: without it the app is a debug build, where every Char is boxed
+# (`new String(c)`) and every `==` on one goes through structural equality --
+# 2.5-6x slower on ordinary files. Nothing here uses `Debug`, which is the one
+# thing --optimize refuses.
+gren make Main --optimize
 chmod +x app
