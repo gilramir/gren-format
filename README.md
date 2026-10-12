@@ -305,11 +305,8 @@ A trailing comment can itself be trailed — the whole chain was written about
 the import, so the whole chain goes with it. A comment a row further down is
 not part of that chain: it belongs to whatever comes next, and stays.
 
-The same holds in front of the import. A comment glued to the `import`
-keyword goes with it, however many rows it spans — `{- unused -} import Foo`
-and its two-row form are treated alike. An own-line comment above that glued
-one is not glued to anything, so it stays, with the usual placeholder below
-it.
+An import starts at column 1, so nothing is glued in front of one: a module
+with `{- note -} import Foo` is refused, as `geng make` refuses it.
 
 | Before | After |
 |---|---|
@@ -317,8 +314,6 @@ it.
 | `import Dict`<br>`-- Array is used for buffering`<br>`import Array` | `import Dict`<br>`-- Array is used for buffering`<br>`-- removed import Array` |
 | `-- Module imports below`<br>`import Dict`<br>`import Array` | `-- Module imports below`<br>`import Dict` |
 | `import Dict`<br>`import Array {- unused`<br>`and it wraps -} -- trailing that` | `import Dict` |
-| `import Dict`<br>`{- unused, and this`<br>`wraps too -} import Array` | `import Dict` |
-| `import Dict`<br>`-- an own-line note`<br>`{- glued -} import Array` | `import Dict`<br>`-- an own-line note`<br>`-- removed import Array` |
 | `import Dict`<br>`import Array {- unused`<br>`and it wraps -}`<br>`-- a row lower, about Set`<br>`import Set` | `import Dict`<br>`-- a row lower, about Set`<br>`import Set` |
 
 ### When the last import goes

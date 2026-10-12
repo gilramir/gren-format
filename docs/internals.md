@@ -195,7 +195,10 @@ remove-unused-imports oracle, 2026-08-10):
   or died on span length alone, and a survivor came to rest above a different
   import. An own-line run above the glued lead still survives, and
   `hasLeadingRun` is measured against the glued lead's first row so that run
-  still gets its placeholder.
+  still gets its placeholder. On Geng it is unreachable: the parser refuses
+  an import that does not start at column 1 (geng-lang m3-sweep.md D685), so
+  no comment is glued in front of one. It is kept as `main` has it, for stock
+  Gren, whose parser takes the glued form.
 - `trailingChainEndRow` — a removed import's range runs to the end of its
   trailing comment CHAIN, not just its own last row. A comment on the row the
   previous trailing comment closes on is another link written about the same

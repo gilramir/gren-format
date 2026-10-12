@@ -17,10 +17,10 @@ not; the same collapse-to-first-occurrence rule applies to a name repeated
 within a single import's own exposing list. A removed import takes its whole
 trailing comment CHAIN with it -- a comment on the row the one before it
 closes on is another link, and every link was written about the import. A
-comment a row further down is not: it leads whatever comes next. The same
-holds in front of the import: a comment glued to the `import` keyword goes
-with it however many rows it spans, while an own-line run above that glued
-lead survives and gets the usual placeholder.
+comment a row further down is not: it leads whatever comes next. Geng's
+parser refuses an import that does not start at column 1 (geng-lang
+m3-sweep.md D685), so a comment glued in front of the `import` keyword is
+not a fixture here: the CLI refuses the module, as geng make does.
 
 Removing the LAST import is its own case: the module's docs slot is parsed
 before its imports, so with no import left between them a `{-| ... -}` above
@@ -124,10 +124,6 @@ removeUnusedImportsFlagSuite perms =
                 expectRemoveUnusedImports perms s "DocShieldImportSurvives"
             , U.test "an undocumented first declaration closes the docs slot, so a doc on a LATER declaration needs no placeholder" <| \s ->
                 expectRemoveUnusedImports perms s "DocShieldLaterDeclaration"
-            , U.test "a block comment glued in front of a removed import goes with it however many rows it spans, and the comment below it stays put" <| \s ->
-                expectRemoveUnusedImports perms s "GluedLeadSpansRows"
-            , U.test "an own-line run above a glued lead is not glued to anything -- it survives, with a placeholder below it" <| \s ->
-                expectRemoveUnusedImports perms s "GluedLeadWithRunAbove"
             , U.test "a removed import takes its whole trailing comment CHAIN with it, including a link on the row the one before it closes on" <| \s ->
                 expectRemoveUnusedImports perms s "TrailingCommentChain"
             , U.test "a comment one row further down is not a chain link -- it leads the next import and is left alone" <| \s ->

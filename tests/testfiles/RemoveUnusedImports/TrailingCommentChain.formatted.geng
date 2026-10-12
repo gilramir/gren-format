@@ -1,7 +1,8 @@
 module TrailingCommentChain exposing (someFunc)
 
 import Array
-{- kept -} import Dict
+-- kept
+import Dict
 
 
 someFunc x =
