@@ -1158,6 +1158,16 @@ refsFromType typ =
         Src.TParens t ->
             refsFromType t
 
+        -- A refinement's measure is a qualified name, `Bytes.length b`, so
+        -- its import is used though no type names it (geng-lang D814).
+        Src.TNamed { type_, refinement } ->
+            when refinement is
+                Just { predicate } ->
+                    mergeRefs (refsFromType type_) (refsFromExpression predicate)
+
+                Nothing ->
+                    refsFromType type_
+
 
 refsFromAlias : Src.Alias -> Refs
 refsFromAlias alias_ =

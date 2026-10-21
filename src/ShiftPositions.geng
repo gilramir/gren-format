@@ -335,6 +335,16 @@ shiftType_ delta type_ =
         Src.TParens t ->
             Src.TParens (shiftType delta t)
 
+        Src.TNamed r ->
+            Src.TNamed
+                { name = shiftLocated delta r.name
+                , type_ = shiftType delta r.type_
+                , refinement =
+                    Maybe.map
+                        (\ref -> { whereAt = shiftPosition delta ref.whereAt, predicate = shiftExpression delta ref.predicate })
+                        r.refinement
+                }
+
 
 shiftTRecordField : Int -> Src.TRecordField -> Src.TRecordField
 shiftTRecordField delta trField =
