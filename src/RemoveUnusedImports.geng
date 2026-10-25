@@ -1,6 +1,5 @@
 module RemoveUnusedImports exposing (removeUnusedImports)
 
-import Array.Builder as Builder
 import Compiler.Ast.Source as Src
 import Compiler.Parse.Context as Ctx
 import Compiler.SourcePosition exposing (Located, Position, Region)
@@ -67,7 +66,7 @@ removeUnusedImports modAst ctx =
             refsFromModule modAst
 
         comments =
-            Builder.toArray ctx.comments
+            ctx.comments
 
         scan =
             classifyImports refs comments modAst.imports
@@ -142,7 +141,7 @@ removeUnusedImports modAst ctx =
             , externs = shifted.externs
             , binops = shifted.binops
         }
-    , context = { ctx | comments = Builder.fromArray newComments }
+    , context = { ctx | comments = newComments }
     }
 
 
@@ -265,7 +264,7 @@ or before the last import's row (comments after that belong to whatever
 declaration follows the imports, never to an import) -- see
 `RegionItem`/`mergedRegion`. Comments and imports both carry a real,
 original row/col, so a single row-ordered walk correctly interleaves them
-regardless of how `Array.Builder` happened to accumulate `ctx.comments`. -}
+regardless of the order the parser accumulated `ctx.comments` in. -}
 classifyImports : Refs -> Array (Located Ctx.Comment) -> Array (Located Src.Import) -> ScanState
 classifyImports refs comments imports =
     Array.foldl (classifyStep refs comments) initScanState (mergedRegion imports comments)
