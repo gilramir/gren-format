@@ -27,6 +27,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from 2.1 s; a 365 KB generated data file takes 0.7 s, down from 4.2 s.
   Output is unchanged: `--show` and every debug flag print the same bytes as
   before.
+- **Built on `gren-lang/compiler-common` 4.2.1** (was 3.0.0). The new parser
+  fixes a set of bugs `gren-format` used to inherit, and now refuses some
+  input that gren 0.6.6 refuses too, such as a top-level declaration that does
+  not start in column 1. An `as`-alias no longer gets extra parens around a
+  number or constructor base: `Just (Nothing as inner)`, not
+  `Just ((Nothing) as inner)`. See the `gren-format-lib` changelog for the
+  full list.
 
 ## [1.3.0] - 2026-09-04
 
