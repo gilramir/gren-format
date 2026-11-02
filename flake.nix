@@ -9,7 +9,7 @@
     packages = builtins.mapAttrs (system: pkgs: {
       default = pkgs.stdenv.mkDerivation {
         pname = "gren-format";
-        version = "1.3.0";
+        version = "1.4.0";
 
         __structuredAttrs = true;
         strictDeps = true;
