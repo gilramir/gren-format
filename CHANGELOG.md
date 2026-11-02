@@ -31,9 +31,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fixes a set of bugs `gren-format` used to inherit, and now refuses some
   input that gren 0.6.6 refuses too, such as a top-level declaration that does
   not start in column 1. An `as`-alias no longer gets extra parens around a
-  number or constructor base: `Just (Nothing as inner)`, not
-  `Just ((Nothing) as inner)`. See the `gren-format-lib` changelog for the
-  full list.
+  number or constructor base, or around a record field's alias:
+  `Just (Nothing as inner)` and `{ a = Nothing as w }`, not
+  `Just ((Nothing) as inner)` and `{ a = ((Nothing) as w) }`. See the
+  `gren-format-lib` changelog for the full list.
 
 ## [1.3.0] - 2026-09-04
 
