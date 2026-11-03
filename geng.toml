@@ -4,7 +4,8 @@ runtime = "node"
 source-directories = ["src"]
 
 [dependencies]
-"github.com/gilramir/gren-argparse" = "2.0.0 <= v < 3.0.0"
+"github.com/gilramir/gren-argparse" = "3.0.0 <= v < 4.0.0"
+"github.com/gilramir/gren-argparse/node" = "1.0.0 <= v < 2.0.0"
 "github.com/gilramir/gren-diff" = "1.0.0 <= v < 2.0.0"
 "github.com/gilramir/gren-format-lib" = "1.1.0 <= v < 2.0.0"
 "github.com/geng-language/compiler-common" = "3.0.0 <= v < 4.0.0"
@@ -15,6 +16,7 @@ source-directories = ["src"]
 
 [sources]
 "github.com/gilramir/gren-argparse" = { path = "../gren-argparse" }
+"github.com/gilramir/gren-argparse/node" = { path = "../gren-argparse/node" }
 "github.com/gilramir/gren-diff" = { path = "../gren-diff" }
 "github.com/gilramir/gren-format-lib" = { path = "../gren-format-lib" }
 "github.com/geng-language/compiler-common" = { path = "../../gren-lang/compiler-common" }

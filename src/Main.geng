@@ -56,7 +56,7 @@ command =
     { word = ""
     , arguments =
         AP.zeroOrMoreArgs
-            { value = AP.pathParser
+            { value = (AP.pathParser Path.fromPosixString)
             , help = "Gren source file or directory to pretty-print in place (a directory is non-recursive; see --recurse)"
             }
     , flags =
@@ -85,17 +85,17 @@ command =
             |> AP.toggle (AP.Both { long = "recurse", short = "r" }) "With a directory argument, also format the Gren sources in its subdirectories (skipping symlinks, dotted directories, node_modules and gren_packages)"
             |> AP.toggle (AP.LongOnly "remove-unused-imports") "Remove unused imports while formatting"
             |> AP.toggle (AP.LongOnly "show-progress") "Print each file as it is formatted, then its outcome on the same line"
-            |> AP.flag (AP.LongOnly "show") AP.pathParser "Parse and pretty-print a single file to stdout without modifying it"
-            |> AP.flag (AP.LongOnly "show-first") AP.pathParser "Like --show but print the FIRST format without the idempotency guard (debug: inspect a non-idempotent first pass)"
-            |> AP.flag (AP.LongOnly "pre-ast") AP.pathParser "Parse a single file and print its AST as JSON to stdout"
-            |> AP.flag (AP.LongOnly "pre-context") AP.pathParser "Parse a single file and print its parse Context (comments) as JSON to stdout"
-            |> AP.flag (AP.LongOnly "post-ast") AP.pathParser "Parse and format a file, verify the ASTs match, then print the formatted file's AST as JSON to stdout"
-            |> AP.flag (AP.LongOnly "post-context") AP.pathParser "Parse and format a file, verify the ASTs match, then print the formatted file's parse Context as JSON to stdout"
-            |> AP.flag (AP.LongOnly "lpt") AP.pathParser "Parse a single file and print its Logical Printing Tree as JSON to stdout"
-            |> AP.flag (AP.LongOnly "rt") AP.pathParser "Parse a single file and print its render tree as JSON to stdout -- the Logical Printing Tree as the renderer sees it, with the source positions taken off"
-            |> AP.flag (AP.LongOnly "box") AP.pathParser "Parse a single file and print the Box tree (the render plan) as JSON to stdout"
-            |> AP.flag (AP.LongOnly "audit-predicates") AP.pathParser "Parse a single file and print, as JSON, every layout predicate that claims a hard break the renderer does not emit"
-            |> AP.flag (AP.LongOnly "decisions") AP.pathParser "Format a single file twice and print, as JSON, which layout decisions differed between the two passes"
+            |> AP.flag (AP.LongOnly "show") (AP.pathParser Path.fromPosixString) "Parse and pretty-print a single file to stdout without modifying it"
+            |> AP.flag (AP.LongOnly "show-first") (AP.pathParser Path.fromPosixString) "Like --show but print the FIRST format without the idempotency guard (debug: inspect a non-idempotent first pass)"
+            |> AP.flag (AP.LongOnly "pre-ast") (AP.pathParser Path.fromPosixString) "Parse a single file and print its AST as JSON to stdout"
+            |> AP.flag (AP.LongOnly "pre-context") (AP.pathParser Path.fromPosixString) "Parse a single file and print its parse Context (comments) as JSON to stdout"
+            |> AP.flag (AP.LongOnly "post-ast") (AP.pathParser Path.fromPosixString) "Parse and format a file, verify the ASTs match, then print the formatted file's AST as JSON to stdout"
+            |> AP.flag (AP.LongOnly "post-context") (AP.pathParser Path.fromPosixString) "Parse and format a file, verify the ASTs match, then print the formatted file's parse Context as JSON to stdout"
+            |> AP.flag (AP.LongOnly "lpt") (AP.pathParser Path.fromPosixString) "Parse a single file and print its Logical Printing Tree as JSON to stdout"
+            |> AP.flag (AP.LongOnly "rt") (AP.pathParser Path.fromPosixString) "Parse a single file and print its render tree as JSON to stdout -- the Logical Printing Tree as the renderer sees it, with the source positions taken off"
+            |> AP.flag (AP.LongOnly "box") (AP.pathParser Path.fromPosixString) "Parse a single file and print the Box tree (the render plan) as JSON to stdout"
+            |> AP.flag (AP.LongOnly "audit-predicates") (AP.pathParser Path.fromPosixString) "Parse a single file and print, as JSON, every layout predicate that claims a hard break the renderer does not emit"
+            |> AP.flag (AP.LongOnly "decisions") (AP.pathParser Path.fromPosixString) "Format a single file twice and print, as JSON, which layout decisions differed between the two passes"
             |> AP.toggle (AP.LongOnly "version") "Print the gren-format version and exit"
     , commonDescription = Nothing
     , summary = "Format Gren source code."
