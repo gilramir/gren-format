@@ -3,6 +3,7 @@ module RemoveUnusedImports exposing (removeUnusedImports)
 import Compiler.Ast.Source as Src
 import Compiler.Parse.Context as Ctx
 import Compiler.SourcePosition exposing (Located, Position, Region)
+import Set
 import ShiftPositions
 import String
 
@@ -843,16 +844,16 @@ dedupeExposed exposedList =
                 identity =
                     exposedIdentity e
             in
-            if Array.member identity acc.seenIdentities then
+            if Set.member identity acc.seenIdentities then
                 { acc | dropped = Array.pushLast e acc.dropped }
 
             else
                 { acc
                     | kept = Array.pushLast e acc.kept
-                    , seenIdentities = Array.pushLast identity acc.seenIdentities
+                    , seenIdentities = Set.set identity acc.seenIdentities
                 }
         )
-        { kept = [], dropped = [], seenIdentities = [] }
+        { kept = [], dropped = [], seenIdentities = Set.empty }
         exposedList
         |> (\acc -> { kept = acc.kept, dropped = acc.dropped })
 
