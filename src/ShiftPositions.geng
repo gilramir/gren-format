@@ -340,11 +340,13 @@ shiftType_ delta type_ =
                 { movedAt = Maybe.map (shiftPosition delta) r.movedAt
                 , name = shiftLocated delta r.name
                 , type_ = shiftType delta r.type_
-                , refinement =
-                    Maybe.map
-                        (\ref -> { whereAt = shiftPosition delta ref.whereAt, predicate = shiftExpression delta ref.predicate })
-                        r.refinement
+                , refinement = Maybe.map (shiftRefinement delta) r.refinement
                 }
+
+
+shiftRefinement : Int -> Src.Refinement -> Src.Refinement
+shiftRefinement delta ref =
+    { whereAt = shiftPosition delta ref.whereAt, predicate = shiftExpression delta ref.predicate }
 
 
 shiftTRecordField : Int -> Src.TRecordField -> Src.TRecordField
@@ -352,6 +354,7 @@ shiftTRecordField delta trField =
     { trField
         | field = shiftLocated delta trField.field
         , signature = shiftType delta trField.signature
+        , refinement = Maybe.map (shiftRefinement delta) trField.refinement
     }
 
 

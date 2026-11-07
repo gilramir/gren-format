@@ -72,6 +72,8 @@ removeUnusedImportsFlagSuite perms =
                 expectRemoveUnusedImports perms s "GroupsSeparate"
             , U.test "an import used only by Geng's syntax is kept -- a constraint, a qualified class in a method's context, `@derive`, an instance head, a primitive's or an extern's signature, an expression annotation -- and the declarations after the cut shift with their comments" <| \s ->
                 expectRemoveUnusedImports perms s "GengSyntaxUsage"
+            , U.test "an import used only by a record field's predicate is kept, and a comment after that signature stays outside the record when the cut shifts it (geng-lang Dnene15)" <| \s ->
+                expectRemoveUnusedImports perms s "FieldRefinementUsage"
             , U.test "a per-declaration doc comment after the cut is shifted along with its declaration" <| \s ->
                 expectRemoveUnusedImports perms s "DeclarationDocComment"
             , U.test "an exposed Type(..) is kept even when the type name itself is never referenced" <| \s ->

@@ -1,0 +1,14 @@
+module FieldRefinementUsage exposing (Packet, size)
+
+import Bytes exposing (Bytes)
+import Sizes
+
+
+type alias Packet =
+    { body : Bytes where Bytes.length body <= 512 }
+
+
+size : { n : Int where Sizes.count n <= 8 }
+-- after the signature
+size =
+    { n = 0 }

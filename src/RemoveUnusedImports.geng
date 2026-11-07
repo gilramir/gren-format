@@ -1153,7 +1153,7 @@ refsFromType typ =
             Array.foldl (\a acc -> mergeRefs acc (refsFromType a)) { emptyRefs | qualifiers = [ qualifier ] } args
 
         Src.TRecord { fields } ->
-            Array.foldl (\f acc -> mergeRefs acc (refsFromType f.signature)) emptyRefs fields
+            Array.foldl (\f acc -> mergeRefs acc (mergeRefs (refsFromType f.signature) (refsFromRefinement f.refinement))) emptyRefs fields
 
         Src.TParens t ->
             refsFromType t
@@ -1161,12 +1161,18 @@ refsFromType typ =
         -- A refinement's measure is a qualified name, `Bytes.length b`, so
         -- its import is used though no type names it (geng-lang D814).
         Src.TNamed { type_, refinement } ->
-            when refinement is
-                Just { predicate } ->
-                    mergeRefs (refsFromType type_) (refsFromExpression predicate)
+            mergeRefs (refsFromType type_) (refsFromRefinement refinement)
 
-                Nothing ->
-                    refsFromType type_
+
+{-| A field's predicate is read the same way (geng-lang Dnene15). -}
+refsFromRefinement : Maybe Src.Refinement -> Refs
+refsFromRefinement refinement =
+    when refinement is
+        Just { predicate } ->
+            refsFromExpression predicate
+
+        Nothing ->
+            emptyRefs
 
 
 refsFromAlias : Src.Alias -> Refs
