@@ -337,7 +337,7 @@ shiftType_ delta type_ =
 
         Src.TNamed r ->
             Src.TNamed
-                { movedAt = Maybe.map (shiftPosition delta) r.movedAt
+                { takenAt = Maybe.map (shiftPosition delta) r.takenAt
                 , name = shiftLocated delta r.name
                 , type_ = shiftType delta r.type_
                 , refinement = Maybe.map (shiftRefinement delta) r.refinement
