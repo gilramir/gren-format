@@ -31,6 +31,7 @@ import RemoveUnusedImportsTests exposing (removeUnusedImportsFlagSuite)
 import ShowFlagTests exposing (showFlagSuite)
 import ShowProgressTests exposing (showProgressSuite)
 import Test.Runner.UnitNode as U
+import Test.Runner.UnitNode.Program as Program
 
 
 main : Task Never {}
@@ -38,7 +39,7 @@ main =
     Node.getEnvironment
         |> Task.andThen
             (\env ->
-                U.runWith env
+                Program.runWith env
                     { name = "gren-format-cli-tests"
                     , version = "1.0.0"
                     , init =
