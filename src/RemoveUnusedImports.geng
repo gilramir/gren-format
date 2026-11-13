@@ -1064,6 +1064,22 @@ refsFromExpression expr =
         Src.Annotated { expression, annotation } ->
             mergeRefs (refsFromExpression expression) (refsFromType annotation)
 
+        -- a qualified reason (`Reason.Input`) uses its module's import, and an
+        -- unqualified one the constructor an import may expose
+        Src.Meant { reason, expression } ->
+            let
+                parts =
+                    String.split "." reason.value
+
+                reasonRefs =
+                    if Array.length parts > 1 then
+                        { emptyRefs | qualifiers = [ String.join "." (Array.dropLast 1 parts) ] }
+
+                    else
+                        { emptyRefs | names = [ reason.value ] }
+            in
+            mergeRefs reasonRefs (refsFromExpression expression)
+
 
 refsFromDef : Src.Def -> Refs
 refsFromDef def =

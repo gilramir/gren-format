@@ -494,6 +494,9 @@ shiftExpression_ delta expr =
         Src.Annotated r ->
             Src.Annotated { expression = shiftExpression delta r.expression, annotation = shiftType delta r.annotation }
 
+        Src.Meant r ->
+            Src.Meant { reason = shiftLocated delta r.reason, expression = shiftExpression delta r.expression }
+
 
 shiftRecordField : Int -> Src.RecordField -> Src.RecordField
 shiftRecordField delta f =
