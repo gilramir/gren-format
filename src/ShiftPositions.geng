@@ -251,7 +251,8 @@ shiftUnionVariantLoc delta locVariant =
 shiftUnionVariant : Int -> Src.UnionVariant -> Src.UnionVariant
 shiftUnionVariant delta variant =
     { variant
-        | name = shiftLocated delta variant.name
+        | doc = Maybe.map (shiftLocated delta) variant.doc
+        , name = shiftLocated delta variant.name
         , payload = Maybe.map (shiftType delta) variant.payload
     }
 
