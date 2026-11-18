@@ -25,5 +25,4 @@ source-directories = ["src"]
 "github.com/geng-language/stream" = { path = "../../../packages/stream" }
 "github.com/geng-language/url" = { path = "../../../packages/url" }
 "github.com/gilramir/gren-toml" = { path = "../gren-toml" }
-"github.com/gilramir/gren-bignum" = { path = "../gren-bignum" }
 "github.com/gilramir/gren-civil-time" = { path = "../gren-civil-time" }

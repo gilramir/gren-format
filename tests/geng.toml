@@ -16,7 +16,6 @@ source-directories = ["src"]
 "github.com/gilramir/gren-unit-node/node" = { path = "../../gren-unit-node/node" }
 "github.com/gilramir/gren-argparse" = { path = "../../gren-argparse" }
 "github.com/gilramir/gren-argparse/node" = { path = "../../gren-argparse/node" }
-"github.com/gilramir/gren-bignum" = { path = "../../gren-bignum" }
 "github.com/gilramir/gren-civil-time" = { path = "../../gren-civil-time" }
 "github.com/geng-language/node" = { path = "../../../gren-lang/node" }
 "github.com/geng-language/test" = { path = "../../../gren-lang/test" }

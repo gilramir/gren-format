@@ -39,11 +39,6 @@ version = "1.0.0"
 path = "../gren-argparse/node"
 
 [[package]]
-name = "github.com/gilramir/gren-bignum"
-version = "1.0.0"
-path = "../gren-bignum"
-
-[[package]]
 name = "github.com/gilramir/gren-civil-time"
 version = "1.0.0"
 path = "../gren-civil-time"
